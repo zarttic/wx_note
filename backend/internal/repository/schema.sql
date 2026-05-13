@@ -1,0 +1,47 @@
+CREATE TABLE IF NOT EXISTS users (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    username   TEXT    NOT NULL UNIQUE,
+    password   TEXT    NOT NULL,
+    nickname   TEXT    NOT NULL DEFAULT '',
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS user_configs (
+    user_id          INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    wechat_app_id    TEXT    NOT NULL DEFAULT '',
+    wechat_secret    TEXT    NOT NULL DEFAULT '',
+    default_author   TEXT    NOT NULL DEFAULT '',
+    updated_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS articles (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title          TEXT    NOT NULL DEFAULT '无标题',
+    markdown       TEXT    NOT NULL DEFAULT '',
+    summary        TEXT    NOT NULL DEFAULT '',
+    cover_url      TEXT    NOT NULL DEFAULT '',
+    status         TEXT    NOT NULL DEFAULT 'draft',
+    draft_media_id TEXT    NOT NULL DEFAULT '',
+    publish_id     INTEGER NOT NULL DEFAULT 0,
+    word_count     INTEGER NOT NULL DEFAULT 0,
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_articles_user_status ON articles(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_articles_updated ON articles(user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS templates (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name        TEXT    NOT NULL DEFAULT '未命名模板',
+    category    TEXT    NOT NULL DEFAULT '默认',
+    content     TEXT    NOT NULL DEFAULT '',
+    cover_url   TEXT    NOT NULL DEFAULT '',
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_templates_user ON templates(user_id, sort_order);
