@@ -52,7 +52,7 @@ async function fetchArticles() {
       status: status.value || undefined,
       search: search.value || undefined,
     })
-    articles.value = data.articles || []
+    articles.value = data.items || []
     total.value = data.total || 0
   } catch (err) {
     if (err.message.includes('401') || err.message.includes('Unauthorized')) {
