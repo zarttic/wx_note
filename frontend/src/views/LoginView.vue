@@ -143,7 +143,7 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   min-height: 100dvh;
-  background: #0c0c0c;
+  background: #09090b;
   position: relative;
   overflow: hidden;
 }
@@ -152,7 +152,7 @@ onMounted(() => {
   position: fixed;
   inset: 0;
   z-index: 0;
-  opacity: 0.035;
+  opacity: 0.03;
   pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   background-repeat: repeat;
@@ -163,10 +163,13 @@ onMounted(() => {
   display: flex;
   align-items: stretch;
   width: 100%;
-  max-width: 860px;
-  min-height: 480px;
+  max-width: 880px;
+  min-height: 500px;
   position: relative;
   z-index: 1;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 24px 80px -24px rgba(0, 0, 0, 0.6);
 }
 
 /* ── Brand panel ────────────────────────────────────────────── */
@@ -177,6 +180,7 @@ onMounted(() => {
   flex-direction: column;
   justify-content: center;
   padding: 48px 56px;
+  background: #0c0c0c;
   opacity: 0;
   transform: translateY(12px);
   transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
@@ -253,15 +257,9 @@ onMounted(() => {
 
 .login-divider {
   width: 1px;
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    rgba(255, 255, 255, 0.06) 20%,
-    rgba(255, 255, 255, 0.06) 80%,
-    transparent
-  );
+  background: rgba(0, 0, 0, 0.06);
   align-self: stretch;
-  margin: 48px 0;
+  margin: 0;
   opacity: 0;
   transition: opacity 0.5s ease 0.4s;
 }
@@ -278,6 +276,7 @@ onMounted(() => {
   flex-direction: column;
   justify-content: center;
   padding: 48px 56px;
+  background: linear-gradient(145deg, #fafafa 0%, #f2f2f5 100%);
   opacity: 0;
   transform: translateY(12px);
   transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.15s,
@@ -300,15 +299,15 @@ onMounted(() => {
 .form-heading h2 {
   font-family: var(--font-mono);
   font-size: 18px;
-  font-weight: 500;
-  color: #e5e5e5;
+  font-weight: 600;
+  color: #1a1a1a;
   margin: 0 0 4px;
   letter-spacing: -0.02em;
 }
 
 .form-heading p {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.3);
+  color: #9ca3af;
   margin: 0;
 }
 
@@ -316,11 +315,11 @@ onMounted(() => {
 
 .form-error {
   padding: 10px 14px;
-  background: rgba(239, 68, 68, 0.06);
-  border: 1px solid rgba(239, 68, 68, 0.12);
+  background: rgba(239, 68, 68, 0.04);
+  border: 1px solid rgba(239, 68, 68, 0.1);
   border-radius: 6px;
   font-size: 12px;
-  color: #f87171;
+  color: #dc2626;
   margin-bottom: 20px;
   line-height: 1.5;
 }
@@ -359,25 +358,25 @@ onMounted(() => {
 .field label {
   font-size: 11px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.3);
+  color: #a1a1aa;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   transition: color 0.2s;
 }
 
 .field-active label {
-  color: rgba(255, 255, 255, 0.55);
+  color: #52525b;
 }
 
 .field input {
   width: 100%;
   padding: 10px 0;
   border: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1.5px solid #e4e4e7;
   border-radius: 0;
   font-size: 14px;
   font-family: var(--font-mono);
-  color: #e5e5e5;
+  color: #18181b;
   background: transparent;
   outline: none;
   transition: border-color 0.2s;
@@ -385,7 +384,7 @@ onMounted(() => {
 }
 
 .field input::placeholder {
-  color: rgba(255, 255, 255, 0.12);
+  color: #d4d4d8;
   font-family: var(--font-sans);
   font-size: 13px;
 }
@@ -413,7 +412,7 @@ onMounted(() => {
   bottom: 10px;
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.2);
+  color: #d4d4d8;
   cursor: pointer;
   padding: 2px;
   display: flex;
@@ -423,7 +422,7 @@ onMounted(() => {
 }
 
 .pw-toggle:hover {
-  color: rgba(255, 255, 255, 0.5);
+  color: #71717a;
 }
 
 /* ── Submit ──────────────────────────────────────────────────── */
@@ -435,8 +434,8 @@ onMounted(() => {
   justify-content: center;
   gap: 8px;
   padding: 12px 20px;
-  background: var(--color-accent);
-  color: #fff;
+  background: #18181b;
+  color: #fafafa;
   border: none;
   border-radius: 6px;
   font-size: 13px;
@@ -448,7 +447,7 @@ onMounted(() => {
 }
 
 .submit-btn:hover:not(:disabled) {
-  background: var(--color-accent-hover);
+  background: #27272a;
 }
 
 .submit-btn:active:not(:disabled) {
@@ -478,18 +477,18 @@ onMounted(() => {
   justify-content: center;
   gap: 6px;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.25);
+  color: #a1a1aa;
 }
 
 .register-link {
-  color: var(--color-accent);
+  color: #18181b;
   text-decoration: none;
-  font-weight: 500;
+  font-weight: 600;
   transition: opacity 0.15s;
 }
 
 .register-link:hover {
-  opacity: 0.8;
+  opacity: 0.6;
 }
 
 /* ── Responsive ──────────────────────────────────────────────── */
@@ -515,14 +514,8 @@ onMounted(() => {
   .login-divider {
     width: auto;
     height: 1px;
-    margin: 0 28px;
-    background: linear-gradient(
-      to right,
-      transparent,
-      rgba(255, 255, 255, 0.06) 20%,
-      rgba(255, 255, 255, 0.06) 80%,
-      transparent
-    );
+    margin: 0;
+    background: rgba(0, 0, 0, 0.06);
   }
 
   .login-form-wrap {
