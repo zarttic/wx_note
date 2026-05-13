@@ -41,23 +41,23 @@ func (r *TemplateRepo) Delete(id, userID int64) error {
 
 func (r *TemplateRepo) GetByID(id, userID int64) (*models.Template, error) {
 	var t models.Template
-	err := r.db.Get(&t, "SELECT * FROM templates WHERE id = ? AND user_id = ?", id, userID)
+	err := r.db.Get(&t, "SELECT * FROM templates WHERE id = ? AND (user_id = 0 OR user_id = ?)", id, userID)
 	return &t, err
 }
 
 func (r *TemplateRepo) List(userID int64, category string) ([]models.Template, error) {
-	var items []models.Template
+	items := make([]models.Template, 0)
 	var err error
 	if category != "" {
-		err = r.db.Select(&items, "SELECT * FROM templates WHERE user_id = ? AND category = ? ORDER BY sort_order ASC, id ASC", userID, category)
+		err = r.db.Select(&items, "SELECT * FROM templates WHERE (user_id = 0 OR user_id = ?) AND category = ? ORDER BY sort_order ASC, id ASC", userID, category)
 	} else {
-		err = r.db.Select(&items, "SELECT * FROM templates WHERE user_id = ? ORDER BY sort_order ASC, id ASC", userID)
+		err = r.db.Select(&items, "SELECT * FROM templates WHERE user_id = 0 OR user_id = ? ORDER BY sort_order ASC, id ASC", userID)
 	}
 	return items, err
 }
 
 func (r *TemplateRepo) GetCategories(userID int64) ([]string, error) {
-	var categories []string
-	err := r.db.Select(&categories, "SELECT DISTINCT category FROM templates WHERE user_id = ? ORDER BY category ASC", userID)
+	categories := make([]string, 0)
+	err := r.db.Select(&categories, "SELECT DISTINCT category FROM templates WHERE user_id = 0 OR user_id = ? ORDER BY category ASC", userID)
 	return categories, err
 }

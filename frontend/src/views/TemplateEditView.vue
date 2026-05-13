@@ -58,7 +58,7 @@ function showToast(msg, type = 'info') {
 async function fetchCategories() {
   try {
     const data = await templateApi.categories()
-    categories.value = data.categories || data || []
+    categories.value = Array.isArray(data) ? data : []
   } catch (err) {
     categories.value = []
   }

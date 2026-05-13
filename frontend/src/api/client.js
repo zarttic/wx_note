@@ -84,14 +84,18 @@ export const authApi = {
 };
 
 export const articleApi = {
-  list({ page, pageSize, status, search } = {}) {
+  async list({ page, pageSize, status, search } = {}) {
     const params = new URLSearchParams();
     if (page) params.set('page', page);
     if (pageSize) params.set('page_size', pageSize);
     if (status) params.set('status', status);
     if (search) params.set('search', search);
     const query = params.toString();
-    return request(`/articles${query ? `?${query}` : ''}`);
+    const data = await request(`/articles${query ? `?${query}` : ''}`);
+    if (data && typeof data === 'object' && Array.isArray(data.items)) {
+      return data;
+    }
+    return { total: 0, page: 1, items: [] };
   },
 
   get(id) {
@@ -157,11 +161,12 @@ export const editorApi = {
 };
 
 export const templateApi = {
-  list(category) {
+  async list(category) {
     const params = new URLSearchParams();
     if (category) params.set('category', category);
     const query = params.toString();
-    return request(`/templates${query ? `?${query}` : ''}`);
+    const data = await request(`/templates${query ? `?${query}` : ''}`);
+    return Array.isArray(data) ? data : [];
   },
 
   get(id) {
@@ -188,7 +193,8 @@ export const templateApi = {
     });
   },
 
-  categories() {
-    return request('/templates/categories/all');
+  async categories() {
+    const data = await request('/templates/categories/all');
+    return Array.isArray(data) ? data : [];
   },
 };

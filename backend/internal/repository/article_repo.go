@@ -87,7 +87,7 @@ func (r *ArticleRepo) List(req models.ArticleListRequest, userID int64) (*models
 	query := fmt.Sprintf("SELECT * FROM articles WHERE %s ORDER BY updated_at DESC LIMIT ? OFFSET ?", where)
 	args = append(args, req.PageSize, offset)
 
-	var items []models.Article
+	items := make([]models.Article, 0)
 	if err := r.db.Select(&items, query, args...); err != nil {
 		return nil, err
 	}
