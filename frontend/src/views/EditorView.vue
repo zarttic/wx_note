@@ -117,6 +117,13 @@ const canPublish = computed(() => {
   )
 })
 
+	const publishHint = computed(() => {
+	  if (!weConfig.value?.app_id || !weConfig.value?.has_secret) return '请先配置公众号'
+	  if (!coverImage.value) return '请上传封面'
+	  if (!markdown.value.trim()) return '请输入内容'
+	  return ''
+	})
+
 // ─── Preview (debounced) ────────────────────────────────────────
 
 async function updatePreview() {
@@ -280,11 +287,6 @@ onMounted(async () => {
   setTimeout(() => { editorReady.value = true }, 100)
 })
 
-	// Refresh wechat config when navigating back to editor
-	watch(() => route.path, async () => {
-	  if (!authStore.isLoggedIn) return
-	  await loadWeConfig()
-	})
 </script>
 
 <template>
@@ -393,11 +395,7 @@ onMounted(async () => {
             <Send v-else :size="13" :stroke-width="2" />
             {{ isPublishing ? '发布中...' : '发布草稿' }}
           </button>
-          <span v-if="!canPublish && !isPublishing" class="publish-hint">
-            <template v-if="!weConfig.value.app_id || !weConfig.value.has_secret">请先配置公众号</template>
-            <template v-else-if="!coverImage.value">请上传封面</template>
-            <template v-else-if="!markdown.value.trim()">请输入内容</template>
-          </span>
+          <span v-if="!canPublish && !isPublishing && publishHint" class="publish-hint">{{ publishHint }}</span>
         </div>
       </div>
     </div>
