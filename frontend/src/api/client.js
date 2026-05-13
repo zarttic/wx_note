@@ -3,13 +3,16 @@ const BASE_URL = '/api';
 async function request(url, options = {}) {
   const token = localStorage.getItem('token');
 
-  const headers = {
-    'Content-Type': 'application/json',
-    ...options.headers,
-  };
+  const headers = { ...options.headers };
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  // FormData requests: let browser auto-set multipart/form-data with boundary
+  // JSON requests: explicitly set Content-Type
+  if (!(options.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
   }
 
   const config = {

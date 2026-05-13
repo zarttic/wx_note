@@ -2,11 +2,9 @@ package api
 
 import (
 	"fmt"
-	"html/template"
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -15,6 +13,7 @@ import (
 	"github.com/nefu-dev/wx-note/internal/middleware"
 	"github.com/nefu-dev/wx-note/internal/models"
 	"github.com/nefu-dev/wx-note/internal/repository"
+	"github.com/nefu-dev/wx-note/internal/renderer"
 	"github.com/nefu-dev/wx-note/internal/wechat"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -494,14 +493,6 @@ type previewResp struct {
 	Summary string `json:"summary"`
 }
 
-var imgPattern = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
-var reStripMarkdown = regexp.MustCompile(`[*_\[\]()~\x60]`)
-var reBoldItalic = regexp.MustCompile(`\*\*\*(.+?)\*\*\*`)
-var reBold = regexp.MustCompile(`\*\*(.+?)\*\*`)
-var reItalic = regexp.MustCompile(`\*(.+?)\*`)
-var reInlineCode = regexp.MustCompile("`(.+?)`")
-var reLink = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
-
 func (h *Handler) preview(c *gin.Context) {
 	var req previewReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -510,9 +501,8 @@ func (h *Handler) preview(c *gin.Context) {
 	}
 
 	title, body := extractTitle(req.Markdown)
-	bodyNoImages := stripImages(body)
-	html := markdownToHTML(bodyNoImages)
-	summary := extractSummary(bodyNoImages)
+	html := renderer.Render(body)
+	summary := extractSummary(body)
 
 	c.JSON(http.StatusOK, previewResp{
 		HTML:    html,
@@ -629,9 +619,8 @@ func (h *Handler) publish(c *gin.Context) {
 		return
 	}
 
-	bodyNoImages := stripImages(body)
-	digest := extractSummary(bodyNoImages)
-	htmlContent := markdownToHTML(bodyNoImages)
+	digest := extractSummary(body)
+	htmlContent := renderer.Render(body)
 
 	client := wechat.NewClient(cfg.WechatAppID, cfg.WechatSecret)
 	result, err := client.PublishArticle(title, htmlContent, coverPath, author, digest)
@@ -708,17 +697,16 @@ func extractTitle(md string) (title, body string) {
 	return
 }
 
-func stripImages(md string) string {
-	return imgPattern.ReplaceAllString(md, "")
-}
-
 func extractSummary(md string) string {
 	for _, line := range strings.Split(md, "\n") {
 		s := strings.TrimSpace(line)
 		if s == "" || strings.HasPrefix(s, "#") || strings.HasPrefix(s, "![") {
 			continue
 		}
-		s = reStripMarkdown.ReplaceAllString(s, "")
+		// Strip basic markdown syntax for a plain-text summary
+		s = strings.ReplaceAll(s, "**", "")
+		s = strings.ReplaceAll(s, "*", "")
+		s = strings.ReplaceAll(s, "`", "")
 		runes := []rune(s)
 		if len(runes) > 120 {
 			return string(runes[:120])
@@ -726,87 +714,4 @@ func extractSummary(md string) string {
 		return s
 	}
 	return ""
-}
-
-func markdownToHTML(md string) string {
-	lines := strings.Split(md, "\n")
-	var buf strings.Builder
-	inCodeBlock := false
-	inList := false
-	var codeLines []string
-
-	for i := 0; i < len(lines); i++ {
-		line := lines[i]
-		if strings.HasPrefix(strings.TrimSpace(line), "```") {
-			if inCodeBlock {
-				buf.WriteString("<pre><code>")
-				buf.WriteString(template.HTMLEscapeString(strings.Join(codeLines, "\n")))
-				buf.WriteString("</code></pre>\n")
-				codeLines = nil
-				inCodeBlock = false
-			} else {
-				inCodeBlock = true
-			}
-			continue
-		}
-		if inCodeBlock {
-			codeLines = append(codeLines, line)
-			continue
-		}
-		s := strings.TrimSpace(line)
-		if s == "" {
-			if inList {
-				buf.WriteString("</ul>\n")
-				inList = false
-			}
-			continue
-		}
-		if strings.HasPrefix(s, "### ") {
-			buf.WriteString("<h3>" + inlineFmt(s[4:]) + "</h3>\n")
-			continue
-		}
-		if strings.HasPrefix(s, "## ") {
-			buf.WriteString("<h2>" + inlineFmt(s[3:]) + "</h2>\n")
-			continue
-		}
-		if strings.HasPrefix(s, "# ") {
-			buf.WriteString("<h1>" + inlineFmt(s[2:]) + "</h1>\n")
-			continue
-		}
-		if s == "---" || s == "***" || s == "___" {
-			buf.WriteString("<hr>\n")
-			continue
-		}
-		if strings.HasPrefix(s, "> ") {
-			buf.WriteString("<blockquote>" + inlineFmt(s[2:]) + "</blockquote>\n")
-			continue
-		}
-		if strings.HasPrefix(s, "- ") || strings.HasPrefix(s, "* ") {
-			if !inList {
-				buf.WriteString("<ul>\n")
-				inList = true
-			}
-			buf.WriteString("<li>" + inlineFmt(s[2:]) + "</li>\n")
-			continue
-		}
-		if inList {
-			buf.WriteString("</ul>\n")
-			inList = false
-		}
-		buf.WriteString("<p>" + inlineFmt(s) + "</p>\n")
-	}
-	if inList {
-		buf.WriteString("</ul>\n")
-	}
-	return buf.String()
-}
-
-func inlineFmt(s string) string {
-	s = template.HTMLEscapeString(s)
-	s = reBoldItalic.ReplaceAllString(s, "<strong><em>$1</em></strong>")
-	s = reBold.ReplaceAllString(s, "<strong>$1</strong>")
-	s = reItalic.ReplaceAllString(s, "<em>$1</em>")
-	s = reInlineCode.ReplaceAllString(s, "<code>$1</code>")
-	s = reLink.ReplaceAllString(s, `<a href="$2">$1</a>`)
-	return s
 }

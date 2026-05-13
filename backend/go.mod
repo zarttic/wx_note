@@ -6,6 +6,7 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/jmoiron/sqlx v1.4.0
+	github.com/yuin/goldmark v1.8.2
 	golang.org/x/crypto v0.48.0
 	modernc.org/sqlite v1.30.0
 )
