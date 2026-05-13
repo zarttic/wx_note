@@ -575,7 +575,7 @@ func (h *Handler) verifyWechat(c *gin.Context) {
 
 	client := wechat.NewClient(cfg.WechatAppID, cfg.WechatSecret)
 	if _, err := client.GetToken(); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": fmt.Sprintf("验证失败: %v", err)})
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("验证失败: %v", err)})
 		return
 	}
 

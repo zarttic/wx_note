@@ -19,17 +19,20 @@ async function request(url, options = {}) {
 
   const response = await fetch(`${BASE_URL}${url}`, config);
 
-  if (response.status === 401) {
-    localStorage.removeItem('token');
-    window.location.href = '/login';
-    throw new Error('401 Unauthorized');
-  }
-
   let data = null
   try {
     data = await response.json()
   } catch (e) {
     // Response body is not valid JSON
+  }
+
+  if (response.status === 401) {
+    const errMsg = (data?.error || '').toLowerCase()
+    if (errMsg.includes('请先登录') || errMsg.includes('登录已过期') || errMsg.includes('unauthorized')) {
+      localStorage.removeItem('token');
+      window.location.href = '/login';
+    }
+    throw new Error(data?.error || '401 Unauthorized')
   }
 
   if (!response.ok) {
