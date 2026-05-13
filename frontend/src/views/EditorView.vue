@@ -279,6 +279,12 @@ onMounted(async () => {
   // Delay editor loading to avoid SSR/hydration issues
   setTimeout(() => { editorReady.value = true }, 100)
 })
+
+	// Refresh wechat config when navigating back to editor
+	watch(() => route.path, async () => {
+	  if (!authStore.isLoggedIn) return
+	  await loadWeConfig()
+	})
 </script>
 
 <template>
@@ -387,6 +393,11 @@ onMounted(async () => {
             <Send v-else :size="13" :stroke-width="2" />
             {{ isPublishing ? '发布中...' : '发布草稿' }}
           </button>
+          <span v-if="!canPublish && !isPublishing" class="publish-hint">
+            <template v-if="!weConfig.value.app_id || !weConfig.value.has_secret">请先配置公众号</template>
+            <template v-else-if="!coverImage.value">请上传封面</template>
+            <template v-else-if="!markdown.value.trim()">请输入内容</template>
+          </span>
         </div>
       </div>
     </div>
@@ -728,6 +739,12 @@ onMounted(async () => {
   padding: 9px 20px;
   border-radius: 10px;
 }
+
+	.publish-hint {
+	  font-size: 11px;
+	  color: var(--color-text-tertiary);
+	  flex-shrink: 0;
+	}
 
 /* ─── Toast ───────────────────────────────────────────────────── */
 
