@@ -63,11 +63,11 @@ async function saveConfig() {
   isConfigSaving.value = true
   try {
     const payload = {
-      app_id: config.app_id,
+      wechat_app_id: config.app_id,
       default_author: config.default_author,
     }
     if (config.app_secret) {
-      payload.app_secret = config.app_secret
+      payload.wechat_secret = config.app_secret
     }
     await authApi.updateConfig(payload)
     showToast('配置已保存', 'success')
