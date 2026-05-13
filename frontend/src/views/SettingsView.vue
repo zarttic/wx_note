@@ -51,7 +51,7 @@ const isConnected = computed(() => config.app_id && config.has_secret)
 async function loadConfig() {
   try {
     const cfg = await authApi.getConfig()
-    config.app_id = cfg.app_id || ''
+    config.app_id = cfg.wechat_app_id || cfg.app_id || ''
     config.has_secret = !!cfg.has_secret
     config.default_author = cfg.default_author || ''
   } catch (err) {
@@ -85,6 +85,7 @@ async function verifyConnection() {
   try {
     await editorApi.verify()
     showToast('连接验证成功', 'success')
+    await loadConfig()
   } catch (err) {
     showToast('验证失败：' + (err.message || '未知错误'), 'error')
   } finally {
