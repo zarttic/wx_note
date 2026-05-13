@@ -200,8 +200,41 @@ async function saveArticle() {
 function handleCoverSelect(e) {
   const file = e.target.files[0]
   if (!file) return
-  coverImage.value = file
-  coverPreviewUrl.value = URL.createObjectURL(file)
+  const validTypes = ['image/jpeg', 'image/png', 'image/webp']
+  if (!validTypes.includes(file.type)) {
+    showToast('请上传 JPG / PNG 格式的图片', 'error')
+    e.target.value = ''
+    return
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    compressImage(file).then(compressed => {
+      coverImage.value = compressed
+      coverPreviewUrl.value = URL.createObjectURL(compressed)
+    }).catch(() => {
+      coverImage.value = file
+      coverPreviewUrl.value = URL.createObjectURL(file)
+    })
+  } else {
+    coverImage.value = file
+    coverPreviewUrl.value = URL.createObjectURL(file)
+  }
+}
+
+function compressImage(file, maxWidth = 900, quality = 0.85) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      let w = img.width, h = img.height
+      if (w > maxWidth) { h = Math.round(h * maxWidth / w); w = maxWidth }
+      canvas.width = w; canvas.height = h
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0, w, h)
+      canvas.toBlob(blob => blob ? resolve(new File([blob], file.name, { type: 'image/jpeg' })) : reject(), 'image/jpeg', quality)
+    }
+    img.onerror = reject
+    img.src = URL.createObjectURL(file)
+  })
 }
 
 function clearCover() {
@@ -367,7 +400,7 @@ onMounted(async () => {
         <div class="publish-bar-inner">
           <!-- Cover -->
           <div class="cover-section">
-            <input type="file" accept="image/*" class="hidden" id="cover-upload" @change="handleCoverSelect" />
+            <input type="file" accept="image/jpeg,image/png,image/webp" class="hidden" id="cover-upload" @change="handleCoverSelect" />
             <label for="cover-upload" class="cover-upload">
               <template v-if="coverPreviewUrl">
                 <img :src="coverPreviewUrl" class="cover-thumb" />
