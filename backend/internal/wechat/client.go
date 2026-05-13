@@ -37,7 +37,7 @@ func NewClient(appID, appSecret string) *Client {
 	return &Client{
 		appID:      appID,
 		appSecret:  appSecret,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
