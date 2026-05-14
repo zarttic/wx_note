@@ -147,6 +147,13 @@ export const articleApi = {
       method: 'DELETE',
     });
   },
+
+  reorder(items) {
+    return request('/articles/reorder', {
+      method: 'PUT',
+      body: JSON.stringify({ items }),
+    });
+  },
 };
 
 export const editorApi = {
@@ -232,6 +239,13 @@ export const templateApi = {
   async categories() {
     const data = await request('/templates/categories/all');
     return Array.isArray(data) ? data : [];
+  },
+
+  reorder(items) {
+    return request('/templates/reorder', {
+      method: 'PUT',
+      body: JSON.stringify({ items }),
+    });
   },
 };
 

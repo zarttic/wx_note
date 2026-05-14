@@ -12,6 +12,7 @@ import {
   Loader2,
   LayoutTemplate,
   Tag,
+  GripVertical,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -29,6 +30,52 @@ const confirmDeleteId = ref(null)
 const toasts = ref([])
 
 let searchTimer = null
+
+// ── Drag & Drop ──────────────────────────────────────────────────
+
+const dragIndex = ref(null)
+const dragOverIndex = ref(null)
+
+function onDragStart(index) {
+  dragIndex.value = index
+}
+
+function onDragOver(e, index) {
+  e.preventDefault()
+  dragOverIndex.value = index
+}
+
+function onDragLeave() {
+  dragOverIndex.value = null
+}
+
+function onDrop(e, index) {
+  e.preventDefault()
+  dragOverIndex.value = null
+  if (dragIndex.value === null || dragIndex.value === index) {
+    dragIndex.value = null
+    return
+  }
+  const list = [...filteredTemplates()]
+  const [moved] = list.splice(dragIndex.value, 1)
+  list.splice(index, 0, moved)
+  dragIndex.value = null
+  templates.value = list
+  saveReorder(list)
+}
+
+function onDragEnd() {
+  dragIndex.value = null
+  dragOverIndex.value = null
+}
+
+async function saveReorder(items) {
+  try {
+    await templateApi.reorder(items.map((t, i) => ({ id: t.id, sort_order: i })))
+  } catch (e) {
+    showToast('排序保存失败', 'error')
+  }
+}
 
 // ── Toast ──────────────────────────────────────────────────────
 
@@ -219,11 +266,21 @@ const filteredTemplates = () => {
       <!-- Template Cards Grid -->
       <div v-else-if="filteredTemplates().length > 0" class="card-grid">
         <div
-          v-for="template in filteredTemplates()"
+          v-for="(template, index) in filteredTemplates()"
           :key="template.id"
           class="template-card"
+          :class="{ 'drag-over': dragOverIndex === index, 'dragging': dragIndex === index }"
+          draggable="true"
+          @dragstart="onDragStart(index)"
+          @dragover="onDragOver($event, index)"
+          @dragleave="onDragLeave"
+          @drop="onDrop($event, index)"
+          @dragend="onDragEnd"
           @click="goToEdit(template.id)"
         >
+          <div class="drag-handle" @click.stop>
+            <GripVertical :size="14" :stroke-width="1.8" />
+          </div>
           <!-- Card Header -->
           <div class="card-header">
             <div class="card-title-row">
@@ -701,5 +758,45 @@ const filteredTemplates = () => {
   .search-wrapper {
     max-width: 100%;
   }
+}
+
+/* ─── Drag & Drop ─────────────────────────────────────────────── */
+
+.template-card {
+  position: relative;
+}
+
+.drag-handle {
+  position: absolute;
+  top: 8px;
+  left: 6px;
+  color: var(--color-text-tertiary);
+  opacity: 0;
+  cursor: grab;
+  transition: opacity 0.15s;
+  padding: 2px;
+  border-radius: 4px;
+}
+
+.template-card:hover .drag-handle {
+  opacity: 1;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.template-card.dragging {
+  opacity: 0.5;
+  transform: scale(0.98);
+}
+
+.template-card.drag-over {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-subtle);
+}
+
+.template-card .card-header {
+  padding-left: 20px;
 }
 </style>
