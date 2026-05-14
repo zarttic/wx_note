@@ -56,6 +56,11 @@ func (r *TemplateRepo) List(userID int64, category string) ([]models.Template, e
 	return items, err
 }
 
+func (r *TemplateRepo) UpdateSortOrder(id, userID int64, sortOrder int) error {
+	_, err := r.db.Exec("UPDATE templates SET sort_order = ? WHERE id = ? AND user_id = ?", sortOrder, id, userID)
+	return err
+}
+
 func (r *TemplateRepo) GetCategories(userID int64) ([]string, error) {
 	categories := make([]string, 0)
 	err := r.db.Select(&categories, "SELECT DISTINCT category FROM templates WHERE user_id = 0 OR user_id = ? ORDER BY category ASC", userID)

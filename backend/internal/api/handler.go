@@ -75,6 +75,8 @@ func (h *Handler) Setup() *gin.Engine {
 		auth.GET("/articles/:id", h.getArticle)
 		auth.PUT("/articles/:id", h.updateArticle)
 		auth.DELETE("/articles/:id", h.deleteArticle)
+		auth.PUT("/articles/reorder", h.reorderArticles)
+		auth.PUT("/templates/reorder", h.reorderTemplates)
 		auth.GET("/articles/:id/revisions", h.listRevisions)
 		auth.GET("/revisions/:id", h.getRevision)
 		auth.POST("/articles/:id/revisions/:rid/restore", h.restoreRevision)
@@ -852,6 +854,50 @@ func (h *Handler) deleteMedia(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "已删除"})
+}
+
+// ─── 排序 ─────────────────────────────────────────────────────
+
+func (h *Handler) reorderTemplates(c *gin.Context) {
+	uid := getUserID(c)
+	var req struct {
+		Items []struct {
+			ID        int64 `json:"id"`
+			SortOrder int   `json:"sort_order"`
+		} `json:"items"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.Items) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		return
+	}
+	for _, item := range req.Items {
+		if err := h.templateRepo.UpdateSortOrder(item.ID, uid, item.SortOrder); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "排序失败"})
+			return
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "排序已保存"})
+}
+
+func (h *Handler) reorderArticles(c *gin.Context) {
+	uid := getUserID(c)
+	var req struct {
+		Items []struct {
+			ID        int64 `json:"id"`
+			SortOrder int   `json:"sort_order"`
+		} `json:"items"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.Items) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		return
+	}
+	for _, item := range req.Items {
+		if err := h.articleRepo.UpdateSortOrder(item.ID, uid, item.SortOrder); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "排序失败"})
+			return
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "排序已保存"})
 }
 
 // ─── 标签 ─────────────────────────────────────────────────────

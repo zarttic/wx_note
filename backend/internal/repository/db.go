@@ -36,6 +36,7 @@ func InitDB(dataDir string) (*sqlx.DB, error) {
 	// 数据库迁移：为已有表添加新列（列已存在则忽略错误）
 	migrations := []string{
 		"ALTER TABLE user_configs ADD COLUMN last_author TEXT NOT NULL DEFAULT ''",
+			"ALTER TABLE articles ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0",
 	}
 	for _, m := range migrations {
 		if _, err := db.Exec(m); err != nil {

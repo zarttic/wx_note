@@ -39,6 +39,11 @@ func (r *ArticleRepo) Update(a *models.Article) error {
 	return err
 }
 
+func (r *ArticleRepo) UpdateSortOrder(id, userID int64, sortOrder int) error {
+	_, err := r.db.Exec("UPDATE articles SET sort_order = ? WHERE id = ? AND user_id = ?", sortOrder, id, userID)
+	return err
+}
+
 func (r *ArticleRepo) Delete(id, userID int64) error {
 	_, err := r.db.Exec("DELETE FROM articles WHERE id = ? AND user_id = ?", id, userID)
 	return err
@@ -92,7 +97,7 @@ func (r *ArticleRepo) List(req models.ArticleListRequest, userID int64) (*models
 	}
 
 	offset := (req.Page - 1) * req.PageSize
-	query := fmt.Sprintf("SELECT articles.* FROM articles%s WHERE %s ORDER BY articles.updated_at DESC LIMIT ? OFFSET ?", joinClause, where)
+	query := fmt.Sprintf("SELECT articles.* FROM articles%s WHERE %s ORDER BY articles.sort_order ASC, articles.updated_at DESC LIMIT ? OFFSET ?", joinClause, where)
 	args = append(args, req.PageSize, offset)
 
 	items := make([]models.Article, 0)
