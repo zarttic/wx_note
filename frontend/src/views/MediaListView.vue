@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { mediaApi } from '@/api/client.js'
+import { mediaApi, editorApi } from '@/api/client.js'
 import { useAuthStore } from '@/stores/auth'
 import {
   Image,
@@ -10,6 +10,7 @@ import {
   Loader2,
   ChevronLeft,
   ChevronRight,
+  Upload,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -24,6 +25,37 @@ const pageSize = 40
 const isLoading = ref(true)
 const deletingId = ref(null)
 const confirmDeleteId = ref(null)
+
+const isUploading = ref(false)
+const uploadProgress = ref({ done: 0, total: 0 })
+const fileInputRef = ref(null)
+
+function triggerUpload() {
+  fileInputRef.value?.click()
+}
+
+async function handleFileUpload(e) {
+  const files = Array.from(e.target.files || [])
+  if (files.length === 0) return
+
+  isUploading.value = true
+  uploadProgress.value = { done: 0, total: files.length }
+
+  for (let i = 0; i < files.length; i++) {
+    try {
+      await editorApi.uploadImage(files[i])
+      uploadProgress.value.done = i + 1
+    } catch (err) {
+      showToast(`上传失败：${files[i].name}`, 'error')
+    }
+  }
+
+  isUploading.value = false
+  uploadProgress.value = { done: 0, total: 0 }
+  e.target.value = ''
+  fetchMedia()
+}
+
 const toasts = ref([])
 
 // ── Toast ──────────────────────────────────────────────────────
@@ -156,6 +188,21 @@ const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize))
           共 <strong>{{ total }}</strong> 个素材
         </p>
       </div>
+      <div class="header-right">
+        <input
+          ref="fileInputRef"
+          type="file"
+          accept="image/*"
+          multiple
+          class="hidden"
+          @change="handleFileUpload"
+        />
+        <button class="btn btn-primary" :disabled="isUploading" @click="triggerUpload">
+          <Loader2 v-if="isUploading" :size="15" class="animate-spin" />
+          <Upload v-else :size="15" :stroke-width="2.2" />
+          {{ isUploading ? `上传中 ${uploadProgress.done}/${uploadProgress.total}` : '上传图片' }}
+        </button>
+      </div>
     </header>
 
     <!-- Content Area -->
@@ -277,6 +324,13 @@ const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize))
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .page-title {
