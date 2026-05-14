@@ -324,6 +324,49 @@ function handleDownload() {
   URL.revokeObjectURL(url)
 }
 
+// ─── Save as Template ─────────────────────────────────────────────
+
+const showSaveTemplateModal = ref(false)
+const newTemplateName = ref('')
+const newTemplateCategory = ref('默认')
+const isSavingTemplate = ref(false)
+
+function openSaveTemplateModal() {
+  if (!markdown.value.trim()) {
+    showToast('内容为空，无法保存为模板', 'info')
+    return
+  }
+  newTemplateName.value = previewTitle.value || articleTitle.value || ''
+  newTemplateCategory.value = '默认'
+  showSaveTemplateModal.value = true
+}
+
+function cancelSaveTemplate() {
+  showSaveTemplateModal.value = false
+  newTemplateName.value = ''
+}
+
+async function confirmSaveTemplate() {
+  if (!newTemplateName.value.trim()) {
+    showToast('请输入模板名称', 'info')
+    return
+  }
+  isSavingTemplate.value = true
+  try {
+    await templateApi.create({
+      name: newTemplateName.value.trim(),
+      category: newTemplateCategory.value.trim() || '默认',
+      content: markdown.value,
+    })
+    showToast('已保存为模板', 'success')
+    showSaveTemplateModal.value = false
+  } catch (e) {
+    showToast('保存模板失败：' + e.message, 'error')
+  } finally {
+    isSavingTemplate.value = false
+  }
+}
+
 // ─── Toast ──────────────────────────────────────────────────────
 
 const toasts = ref([])
@@ -716,6 +759,10 @@ function formatDateShort(str) {
             <Download :size="13" :stroke-width="2" />
             下载
           </button>
+          <button class="btn btn-ghost btn-sm" @click="openSaveTemplateModal" title="将当前内容保存为模板">
+            <Bookmark :size="13" :stroke-width="2" />
+            存模板
+          </button>
           <button class="btn btn-ghost btn-sm" @click="openRevisionPanel">
             <History :size="13" :stroke-width="2" />
             历史
@@ -1004,6 +1051,48 @@ function formatDateShort(str) {
             <RotateCcw v-if="!restoringRevision" :size="13" :stroke-width="2" />
             <Loader2 v-else :size="13" class="animate-spin" />
             {{ restoringRevision ? '恢复中...' : '恢复此版本' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Save as Template Modal -->
+    <div v-if="showSaveTemplateModal" class="modal-overlay" @click.self="cancelSaveTemplate">
+      <div class="modal" style="width: 400px;">
+        <div class="modal-header">
+          <h3 class="modal-title">保存为模板</h3>
+          <button class="btn btn-ghost btn-sm" @click="cancelSaveTemplate">
+            <X :size="14" :stroke-width="2" />
+          </button>
+        </div>
+        <div class="modal-body">
+          <div style="display: flex; flex-direction: column; gap: 16px;">
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 12px; font-weight: 500; color: var(--color-text-secondary);">模板名称</label>
+              <input
+                v-model="newTemplateName"
+                type="text"
+                style="padding: 9px 12px; border: 1px solid var(--color-border); border-radius: 8px; font-size: 13px; font-family: var(--font-sans); color: var(--color-text-primary); background: var(--color-surface); outline: none;"
+                placeholder="输入模板名称..."
+                @keydown.enter="confirmSaveTemplate"
+              />
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 12px; font-weight: 500; color: var(--color-text-secondary);">分类</label>
+              <input
+                v-model="newTemplateCategory"
+                type="text"
+                style="padding: 9px 12px; border: 1px solid var(--color-border); border-radius: 8px; font-size: 13px; font-family: var(--font-sans); color: var(--color-text-primary); background: var(--color-surface); outline: none;"
+                placeholder="默认"
+              />
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" @click="cancelSaveTemplate">取消</button>
+          <button class="btn btn-primary" :disabled="isSavingTemplate" @click="confirmSaveTemplate">
+            <Loader2 v-if="isSavingTemplate" :size="13" class="animate-spin" />
+            {{ isSavingTemplate ? '保存中...' : '保存模板' }}
           </button>
         </div>
       </div>
