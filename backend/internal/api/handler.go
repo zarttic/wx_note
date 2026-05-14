@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
@@ -26,6 +28,7 @@ type Handler struct {
 	tagRepo       *repository.TagRepo
 	mediaRepo     *repository.MediaRepo
 	revisionRepo  *repository.RevisionRepo
+	wechatClients sync.Map // map[int64]*wechat.Client
 }
 
 func NewHandler(db *sqlx.DB) *Handler {
@@ -38,6 +41,27 @@ func NewHandler(db *sqlx.DB) *Handler {
 		mediaRepo:    repository.NewMediaRepo(db),
 			revisionRepo:  repository.NewRevisionRepo(db),
 	}
+}
+
+func (h *Handler) getWechatClient(uid int64) (*wechat.Client, error) {
+	if v, ok := h.wechatClients.Load(uid); ok {
+		return v.(*wechat.Client), nil
+	}
+
+	cfg, err := h.userRepo.GetConfig(uid)
+	if err != nil || cfg.WechatAppID == "" || cfg.WechatSecret == "" {
+		return nil, fmt.Errorf("请先配置微信公众号")
+	}
+
+	client := wechat.NewClient(cfg.WechatAppID, cfg.WechatSecret)
+	h.wechatClients.Store(uid, client)
+
+	go func() {
+		time.Sleep(30 * time.Minute)
+		h.wechatClients.Delete(uid)
+	}()
+
+	return client, nil
 }
 
 func (h *Handler) Setup() *gin.Engine {
@@ -628,13 +652,12 @@ func (h *Handler) uploadImage(c *gin.Context) {
 	tmpFile.Close()
 
 	uid := getUserID(c)
-	cfg, err := h.userRepo.GetConfig(uid)
-	if err != nil || cfg.WechatAppID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请先配置微信公众号"})
+	client, err := h.getWechatClient(uid)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	client := wechat.NewClient(cfg.WechatAppID, cfg.WechatSecret)
 	url, err := client.UploadImage(tmpFile.Name())
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("上传失败: %v", err)})
@@ -654,13 +677,12 @@ func (h *Handler) uploadImage(c *gin.Context) {
 
 func (h *Handler) verifyWechat(c *gin.Context) {
 	uid := getUserID(c)
-	cfg, err := h.userRepo.GetConfig(uid)
-	if err != nil || cfg.WechatAppID == "" || cfg.WechatSecret == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请先配置微信公众号 AppID 和 AppSecret"})
+	client, err := h.getWechatClient(uid)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	client := wechat.NewClient(cfg.WechatAppID, cfg.WechatSecret)
 	if _, err := client.GetToken(); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("验证失败: %v", err)})
 		return
