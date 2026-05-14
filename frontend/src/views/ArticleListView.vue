@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { articleApi } from '@/api/client.js'
+import { articleApi, tagApi } from '@/api/client.js'
 import { useAuthStore } from '@/stores/auth'
 import {
   Search,
@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
+  Tag,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -26,6 +27,8 @@ const page = ref(1)
 const pageSize = 20
 const search = ref('')
 const status = ref('')
+const selectedTagId = ref('')
+const tags = ref([])
 const isLoading = ref(true)
 const deletingId = ref(null)
 const confirmDeleteId = ref(null)
@@ -51,6 +54,7 @@ async function fetchArticles() {
       pageSize,
       status: status.value || undefined,
       search: search.value || undefined,
+      tag_id: selectedTagId.value || undefined,
     })
     articles.value = data.items || []
     total.value = data.total || 0
@@ -68,10 +72,16 @@ async function fetchArticles() {
 
 // ── Lifecycle ──────────────────────────────────────────────────
 
-onMounted(() => {
+onMounted(async () => {
   if (!authStore.isLoggedIn) {
     router.push('/login')
     return
+  }
+  try {
+    const tagData = await tagApi.list()
+    tags.value = Array.isArray(tagData) ? tagData : []
+  } catch (e) {
+    tags.value = []
   }
   fetchArticles()
 })
@@ -79,6 +89,11 @@ onMounted(() => {
 // ── Watchers ───────────────────────────────────────────────────
 
 watch(status, () => {
+  page.value = 1
+  fetchArticles()
+})
+
+watch(selectedTagId, () => {
   page.value = 1
   fetchArticles()
 })
@@ -201,6 +216,14 @@ const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize))
           <option value="published">已发布</option>
         </select>
       </div>
+
+      <div class="filter-wrapper">
+        <Tag :size="13" class="filter-icon" :stroke-width="1.8" />
+        <select v-model="selectedTagId" class="filter-select">
+          <option value="">全部标签</option>
+          <option v-for="tag in tags" :key="tag.id" :value="tag.id">{{ tag.name }}</option>
+        </select>
+      </div>
     </div>
 
     <!-- Content Area -->
@@ -219,6 +242,7 @@ const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize))
           <thead>
             <tr>
               <th class="col-title">标题</th>
+              <th class="col-tags">标签</th>
               <th class="col-words">字数</th>
               <th class="col-status">状态</th>
               <th class="col-date">更新时间</th>
@@ -239,6 +263,19 @@ const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize))
                 >
                   {{ article.title || '无标题' }}
                 </button>
+              </td>
+
+              <!-- Tags -->
+              <td class="col-tags">
+                <div class="article-tags">
+                  <span
+                    v-for="tag in (article.tags || [])"
+                    :key="tag.id"
+                    class="tag-badge"
+                  >
+                    {{ tag.name }}
+                  </span>
+                </div>
               </td>
 
               <!-- Word Count -->
@@ -520,6 +557,10 @@ const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize))
   min-width: 200px;
 }
 
+.col-tags {
+  width: 160px;
+}
+
 .col-words {
   width: 80px;
   text-align: right;
@@ -613,6 +654,27 @@ const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize))
 .badge-published {
   background: rgba(7, 193, 96, 0.08);
   color: #059669;
+}
+
+/* ─── Tag Badge ─────────────────────────────────────────────────── */
+
+.article-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tag-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  background: #f3f4f6;
+  color: #374151;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
 }
 
 /* ─── Date ───────────────────────────────────────────────────── */
@@ -825,6 +887,7 @@ const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize))
   }
 
   .col-words,
+  .col-tags,
   .col-status {
     display: none;
   }

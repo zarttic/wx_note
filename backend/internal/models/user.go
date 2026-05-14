@@ -14,6 +14,7 @@ type UserConfig struct {
 	WechatAppID   string `json:"wechat_app_id" db:"wechat_app_id"`
 	WechatSecret  string `json:"wechat_secret" db:"wechat_secret"`
 	DefaultAuthor string `json:"default_author" db:"default_author"`
+	LastAuthor    string `json:"last_author" db:"last_author"`
 	UpdatedAt     string `json:"updated_at" db:"updated_at"`
 }
 
@@ -21,4 +22,5 @@ type UserConfigSafe struct {
 	WechatAppID   string `json:"wechat_app_id"`
 	HasSecret     bool   `json:"has_secret"`
 	DefaultAuthor string `json:"default_author"`
+	LastAuthor    string `json:"last_author"`
 }

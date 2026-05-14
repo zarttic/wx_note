@@ -45,3 +45,17 @@ CREATE TABLE IF NOT EXISTS templates (
     updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_templates_user ON templates(user_id, sort_order);
+
+CREATE TABLE IF NOT EXISTS tags (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name    TEXT NOT NULL,
+    UNIQUE(user_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_tags_user ON tags(user_id);
+
+CREATE TABLE IF NOT EXISTS article_tags (
+    article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+    tag_id     INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    PRIMARY KEY (article_id, tag_id)
+);

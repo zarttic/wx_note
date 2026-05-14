@@ -7,7 +7,7 @@ import 'md-editor-v3/lib/style.css'
 const MdEditor = defineAsyncComponent(() =>
   import('md-editor-v3').then(m => m.MdEditor)
 )
-import { editorApi, articleApi, templateApi } from '@/api/client.js'
+import { editorApi, articleApi, templateApi, tagApi } from '@/api/client.js'
 import { useAuthStore } from '@/stores/auth'
 import {
   Save,
@@ -19,6 +19,9 @@ import {
   FileText,
   LayoutTemplate,
   ChevronDown,
+  CircleAlert,
+  CircleCheck,
+  Tag,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -34,6 +37,10 @@ const articleTitle = ref('')
 const lastSavedAt = ref(null)
 const isSaving = ref(false)
 const editorReady = ref(false)
+const autoSaveStatus = ref('idle') // 'idle' | 'saving' | 'saved' | 'error'
+const autoSaveError = ref('')
+let autoSaveTimer = null
+let suppressAutoSave = false // suppress auto-save during initial load
 
 // ─── Template Picker ─────────────────────────────────────────────
 
@@ -78,10 +85,88 @@ let previewTimer = null
 const coverImage = ref(null)
 const coverPreviewUrl = ref('')
 
+// ─── Tags ────────────────────────────────────────────────────────
+
+const articleTags = ref([])
+const tagInput = ref('')
+const allTags = ref([])
+const showTagSuggestions = ref(false)
+
+const tagSuggestions = computed(() => {
+  const input = tagInput.value.trim().toLowerCase()
+  if (!input) return []
+  return allTags.value
+    .filter(t => t.name.toLowerCase().includes(input) && !articleTags.value.some(at => at.id === t.id))
+    .slice(0, 5)
+})
+
+async function addTagFromInput() {
+  const name = tagInput.value.trim()
+  if (!name) return
+  // Check if already added
+  if (articleTags.value.some(t => t.name === name)) {
+    tagInput.value = ''
+    showTagSuggestions.value = false
+    return
+  }
+  // Check if tag exists in allTags
+  const existing = allTags.value.find(t => t.name === name)
+  if (existing) {
+    articleTags.value.push(existing)
+  } else {
+    // Create new tag
+    try {
+      const created = await tagApi.create(name)
+      allTags.value.push(created)
+      articleTags.value.push(created)
+    } catch (e) {
+      showToast('创建标签失败：' + e.message, 'error')
+    }
+  }
+  tagInput.value = ''
+  showTagSuggestions.value = false
+}
+
+function selectTagSuggestion(tag) {
+  if (!articleTags.value.some(t => t.id === tag.id)) {
+    articleTags.value.push(tag)
+  }
+  tagInput.value = ''
+  showTagSuggestions.value = false
+}
+
+function removeTag(tagId) {
+  articleTags.value = articleTags.value.filter(t => t.id !== tagId)
+}
+
+function onTagInputKeydown(e) {
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault()
+    addTagFromInput()
+  }
+  if (e.key === 'Backspace' && !tagInput.value && articleTags.value.length > 0) {
+    articleTags.value.pop()
+  }
+}
+
+function onTagInputBlur() {
+  // Delay to allow click on suggestion
+  setTimeout(() => { showTagSuggestions.value = false }, 150)
+}
+
 // ─── Publish ────────────────────────────────────────────────────
 
 const isPublishing = ref(false)
-const weConfig = ref({ app_id: '', has_secret: false, default_author: '' })
+const weConfig = ref({ app_id: '', has_secret: false, default_author: '', last_author: '' })
+
+// ─── Publish Success Modal ──────────────────────────────────────
+
+const showPublishSuccess = ref(false)
+const publishResult = ref(null)
+
+// ─── Last Cover Hint ────────────────────────────────────────────
+
+const lastCoverName = ref(localStorage.getItem('wx_note_last_cover_name') || '')
 
 // ─── Toast ──────────────────────────────────────────────────────
 
@@ -105,6 +190,15 @@ const lastSavedText = computed(() => {
   const d = new Date(lastSavedAt.value)
   const pad = (n) => String(n).padStart(2, '0')
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+})
+
+const autoSaveDisplay = computed(() => {
+  if (autoSaveStatus.value === 'saving') return { text: '保存中...', icon: 'loader', color: 'var(--color-text-tertiary)' }
+  if (autoSaveStatus.value === 'saved') return { text: `已自动保存 ${lastSavedText.value}`, icon: 'clock', color: 'var(--color-status-success)' }
+  if (autoSaveStatus.value === 'error') return { text: '保存失败', icon: 'error', color: 'var(--color-status-error)' }
+  // idle — show last saved time if available
+  if (lastSavedText.value) return { text: `上次保存 ${lastSavedText.value}`, icon: 'clock', color: 'var(--color-text-tertiary)' }
+  return null
 })
 
 const canPublish = computed(() => {
@@ -149,49 +243,89 @@ async function updatePreview() {
 watch(markdown, () => {
   clearTimeout(previewTimer)
   previewTimer = setTimeout(updatePreview, 600)
+
+  // Auto-save with 3s debounce
+  clearTimeout(autoSaveTimer)
+  if (!markdown.value.trim() || suppressAutoSave) return
+  autoSaveTimer = setTimeout(() => {
+    doSave({ notify: false, isAuto: true })
+  }, 3000)
 })
 
 // ─── Article CRUD ────────────────────────────────────────────────
 
 async function loadArticle(id) {
+  suppressAutoSave = true
   try {
     const data = await articleApi.get(id)
     markdown.value = data.markdown || ''
     articleTitle.value = data.title || ''
+    articleTags.value = data.tags || []
     lastSavedAt.value = data.updated_at || data.created_at || null
     await nextTick()
     await updatePreview()
   } catch (e) {
     showToast('加载文章失败：' + e.message, 'error')
+  } finally {
+    suppressAutoSave = false
   }
 }
 
-async function saveArticle() {
+async function doSave({ notify = true, isAuto = false } = {}) {
   if (!markdown.value.trim()) {
-    showToast('内容为空，无需保存', 'info')
+    if (notify) showToast('内容为空，无需保存', 'info')
     return
   }
+  // If a manual save is in progress, skip auto save
+  if (isAuto && isSaving.value) return
   isSaving.value = true
+  if (isAuto) autoSaveStatus.value = 'saving'
   try {
     const payload = {
       title: previewTitle.value || articleTitle.value || '未命名文章',
       markdown: markdown.value,
+      tag_ids: articleTags.value.map(t => t.id),
     }
     if (isNewArticle.value) {
       const result = await articleApi.create(payload)
       articleTitle.value = result.title || payload.title
       lastSavedAt.value = result.created_at || new Date().toISOString()
-      showToast('文章已创建', 'success')
-      if (result.id) router.replace(`/editor/${result.id}`)
+      if (isAuto) {
+        autoSaveStatus.value = 'saved'
+        if (result.id) router.replace(`/editor/${result.id}`)
+      } else {
+        showToast('文章已创建', 'success')
+        if (result.id) router.replace(`/editor/${result.id}`)
+      }
     } else {
       await articleApi.update(articleId.value, payload)
       lastSavedAt.value = new Date().toISOString()
-      showToast('保存成功', 'success')
+      if (isAuto) {
+        autoSaveStatus.value = 'saved'
+      } else {
+        showToast('保存成功', 'success')
+      }
     }
   } catch (e) {
-    showToast('保存失败：' + e.message, 'error')
+    if (isAuto) {
+      autoSaveStatus.value = 'error'
+      autoSaveError.value = e?.message || '未知错误'
+    } else {
+      showToast('保存失败：' + e.message, 'error')
+    }
   } finally {
     isSaving.value = false
+  }
+}
+
+async function saveArticle() {
+  // Cancel pending auto-save when user manually saves
+  clearTimeout(autoSaveTimer)
+  autoSaveTimer = null
+  await doSave({ notify: true, isAuto: false })
+  // After manual save succeeds, reflect saved state in auto-save indicator
+  if (!isSaving.value && lastSavedAt.value) {
+    autoSaveStatus.value = 'saved'
   }
 }
 
@@ -261,11 +395,16 @@ async function handlePublish() {
     const result = await editorApi.publish({
       markdown: markdown.value,
       cover: coverImage.value,
-      author: weConfig.value.default_author,
+      author: weConfig.value.last_author || weConfig.value.default_author,
     })
     if (result.ok) {
-      const shortId = result.draft_media_id ? result.draft_media_id.slice(0, 16) : ''
-      showToast(`已发布至草稿箱，ID: ${shortId}`, 'success')
+      // Save cover filename to localStorage
+      if (coverImage.value && coverImage.value.name) {
+        localStorage.setItem('wx_note_last_cover_name', coverImage.value.name)
+        lastCoverName.value = coverImage.value.name
+      }
+      publishResult.value = result
+      showPublishSuccess.value = true
     }
   } catch (e) {
     showToast('发布失败：' + e.message, 'error')
@@ -298,6 +437,7 @@ async function loadWeConfig() {
       app_id: cfg.wechat_app_id || '',
       has_secret: cfg.has_secret || false,
       default_author: cfg.default_author || '',
+      last_author: cfg.last_author || '',
     }
   } catch (e) {
     // Config may not be available
@@ -310,6 +450,12 @@ onMounted(async () => {
     return
   }
   await loadWeConfig()
+  try {
+    const tagData = await tagApi.list()
+    allTags.value = Array.isArray(tagData) ? tagData : []
+  } catch (e) {
+    allTags.value = []
+  }
   if (articleId.value) {
     await loadArticle(articleId.value)
   } else {
@@ -333,9 +479,12 @@ onMounted(async () => {
           <span class="toolbar-title">{{ displayTitle }}</span>
         </div>
         <div class="toolbar-right">
-          <span v-if="lastSavedText" class="toolbar-saved">
-            <Clock :size="11" :stroke-width="2" />
-            上次保存 {{ lastSavedText }}
+          <span v-if="autoSaveDisplay" class="toolbar-autosave" :style="{ color: autoSaveDisplay.color }">
+            <Loader2 v-if="autoSaveDisplay.icon === 'loader'" :size="11" class="animate-spin" />
+            <Clock v-else-if="autoSaveDisplay.icon === 'clock'" :size="11" :stroke-width="2" />
+            <CircleAlert v-else-if="autoSaveDisplay.icon === 'error'" :size="11" :stroke-width="2" />
+            {{ autoSaveDisplay.text }}
+            <span v-if="autoSaveStatus === 'error' && autoSaveError" class="autosave-error-detail">{{ autoSaveError }}</span>
           </span>
           <button class="btn btn-ghost btn-sm" @click="openTemplatePicker">
             <LayoutTemplate :size="13" :stroke-width="2" />
@@ -413,6 +562,7 @@ onMounted(async () => {
             <button v-if="coverImage" class="cover-clear" @click="clearCover">
               <X :size="10" :stroke-width="2.5" />
             </button>
+            <div v-if="!coverImage && lastCoverName" class="cover-hint">上次使用：{{ lastCoverName }}</div>
           </div>
 
           <!-- Summary -->
@@ -420,6 +570,45 @@ onMounted(async () => {
             <div class="summary-label">摘要</div>
             <div v-if="previewSummary" class="summary-text">{{ previewSummary }}</div>
             <div v-else class="summary-empty">添加正文内容以自动生成摘要</div>
+          </div>
+
+          <!-- Tags -->
+          <div class="tag-section">
+            <div class="tag-label">
+              <Tag :size="11" :stroke-width="2" />
+              标签
+            </div>
+            <div class="tag-input-wrapper">
+              <span
+                v-for="tag in articleTags"
+                :key="tag.id"
+                class="editor-tag-badge"
+              >
+                {{ tag.name }}
+                <button class="tag-remove-btn" @click="removeTag(tag.id)">
+                  <X :size="9" :stroke-width="2.5" />
+                </button>
+              </span>
+              <input
+                v-model="tagInput"
+                type="text"
+                class="tag-input"
+                placeholder="输入标签..."
+                @keydown="onTagInputKeydown"
+                @focus="showTagSuggestions = true"
+                @blur="onTagInputBlur"
+              />
+              <div v-if="showTagSuggestions && tagSuggestions.length > 0" class="tag-suggestions">
+                <div
+                  v-for="suggestion in tagSuggestions"
+                  :key="suggestion.id"
+                  class="tag-suggestion-item"
+                  @mousedown.prevent="selectTagSuggestion(suggestion)"
+                >
+                  {{ suggestion.name }}
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Publish -->
@@ -465,6 +654,40 @@ onMounted(async () => {
               <div class="tpl-category">{{ tpl.category }}</div>
               <div class="tpl-preview">{{ (tpl.content || '').slice(0, 80) }}...</div>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Publish Success Modal -->
+    <div v-if="showPublishSuccess" class="modal-overlay" @click.self="showPublishSuccess = false">
+      <div class="modal publish-success-modal">
+        <div class="modal-header">
+          <h3 class="modal-title">发布成功</h3>
+          <button class="btn btn-ghost btn-sm" @click="showPublishSuccess = false">
+            <X :size="14" :stroke-width="2" />
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="publish-success-content">
+            <div class="success-icon-row">
+              <CircleCheck :size="32" :stroke-width="1.5" class="success-icon" />
+            </div>
+            <p class="success-article-title">{{ previewTitle || articleTitle || '未命名文章' }}</p>
+            <p v-if="publishResult && publishResult.draft_media_id" class="success-draft-id">
+              草稿 ID：{{ publishResult.draft_media_id.slice(0, 16) }}
+            </p>
+            <a href="https://mp.weixin.qq.com" target="_blank" rel="noopener" class="success-link">
+              前往微信公众平台查看 &rarr;
+            </a>
+          </div>
+          <div class="success-actions">
+            <button class="btn btn-secondary" @click="showPublishSuccess = false">
+              继续编辑
+            </button>
+            <button class="btn btn-primary" @click="showPublishSuccess = false; router.push('/articles')">
+              返回列表
+            </button>
           </div>
         </div>
       </div>
@@ -541,13 +764,18 @@ onMounted(async () => {
   flex-shrink: 0;
 }
 
-.toolbar-saved {
+.toolbar-autosave {
   display: flex;
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: var(--color-text-tertiary);
   font-variant-numeric: tabular-nums;
+}
+
+.autosave-error-detail {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  margin-left: 2px;
 }
 
 .editor-container {
@@ -735,6 +963,17 @@ onMounted(async () => {
   background: var(--color-status-error);
 }
 
+.cover-hint {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 64px;
+  text-align: center;
+  margin-top: 2px;
+}
+
 .summary-section {
   flex: 1;
   min-width: 0;
@@ -771,11 +1010,123 @@ onMounted(async () => {
   border-radius: 10px;
 }
 
-	.publish-hint {
-	  font-size: 11px;
-	  color: var(--color-text-tertiary);
-	  flex-shrink: 0;
-	}
+.publish-hint {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+/* ─── Tag Input ──────────────────────────────────────────────── */
+
+.tag-section {
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.tag-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.tag-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  min-height: 28px;
+  flex-wrap: wrap;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.tag-input-wrapper:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-subtle);
+}
+
+.editor-tag-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  background: #f3f4f6;
+  color: #374151;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.tag-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: #9ca3af;
+  transition: color 0.12s;
+  height: 12px;
+  width: 12px;
+}
+
+.tag-remove-btn:hover {
+  color: #374151;
+}
+
+.tag-input {
+  flex: 1;
+  min-width: 60px;
+  border: none;
+  outline: none;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  color: var(--color-text-primary);
+  background: transparent;
+  padding: 0;
+  line-height: 1.4;
+}
+
+.tag-input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.tag-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  z-index: 100;
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.tag-suggestion-item {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.tag-suggestion-item:hover {
+  background: #f3f4f6;
+}
 
 /* ─── Toast ───────────────────────────────────────────────────── */
 
@@ -815,6 +1166,70 @@ onMounted(async () => {
 @keyframes toast-in {
   from { transform: translateY(-8px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
+}
+
+/* ─── Publish Success Modal ───────────────────────────────────── */
+
+.publish-success-modal {
+  width: 400px;
+  display: flex;
+  flex-direction: column;
+}
+
+.publish-success-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 8px;
+}
+
+.success-icon-row {
+  display: flex;
+  justify-content: center;
+}
+
+.success-icon {
+  color: var(--color-status-success);
+}
+
+.success-article-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  text-align: center;
+  margin: 0;
+}
+
+.success-draft-id {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+
+.success-link {
+  font-size: 13px;
+  color: var(--color-accent);
+  text-decoration: none;
+  transition: opacity 0.15s;
+}
+
+.success-link:hover {
+  opacity: 0.8;
+}
+
+.success-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border-subtle);
+  margin-top: 8px;
+}
+
+.success-actions .btn {
+  min-width: 100px;
 }
 
 /* ─── Responsive ──────────────────────────────────────────────── */

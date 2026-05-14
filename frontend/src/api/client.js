@@ -89,13 +89,33 @@ export const authApi = {
   },
 };
 
+export const tagApi = {
+  list() {
+    return request('/tags');
+  },
+
+  create(name) {
+    return request('/tags', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+  },
+
+  delete(id) {
+    return request(`/tags/${id}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
 export const articleApi = {
-  async list({ page, pageSize, status, search } = {}) {
+  async list({ page, pageSize, status, search, tag_id } = {}) {
     const params = new URLSearchParams();
     if (page) params.set('page', page);
     if (pageSize) params.set('page_size', pageSize);
     if (status) params.set('status', status);
     if (search) params.set('search', search);
+    if (tag_id) params.set('tag_id', tag_id);
     const query = params.toString();
     const data = await request(`/articles${query ? `?${query}` : ''}`);
     if (data && typeof data === 'object' && Array.isArray(data.items)) {

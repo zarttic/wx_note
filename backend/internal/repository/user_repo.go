@@ -65,3 +65,13 @@ func (r *UserRepo) UpdateConfig(userID int64, appID, secret, author string) erro
 	)
 	return err
 }
+
+// SaveLastAuthor 保存本次发布使用的作者名，下次发布时自动回填
+func (r *UserRepo) SaveLastAuthor(userID int64, author string) error {
+	_, err := r.db.Exec(`UPDATE user_configs SET
+		last_author = ?, updated_at = datetime('now')
+		WHERE user_id = ?`,
+		author, userID,
+	)
+	return err
+}

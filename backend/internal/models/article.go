@@ -13,6 +13,7 @@ type Article struct {
 	WordCount    int    `json:"word_count" db:"word_count"`
 	CreatedAt    string `json:"created_at" db:"created_at"`
 	UpdatedAt    string `json:"updated_at" db:"updated_at"`
+	Tags         []Tag  `json:"tags"` // 非数据库字段，由 handler 层填充
 }
 
 type ArticleListRequest struct {
@@ -20,6 +21,7 @@ type ArticleListRequest struct {
 	PageSize int    `form:"page_size"`
 	Status   string `form:"status"`
 	Search   string `form:"search"`
+	TagID    int64  `form:"tag_id"`
 }
 
 type ArticleListResponse struct {

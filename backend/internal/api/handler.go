@@ -23,6 +23,7 @@ type Handler struct {
 	userRepo      *repository.UserRepo
 	articleRepo   *repository.ArticleRepo
 	templateRepo  *repository.TemplateRepo
+	tagRepo       *repository.TagRepo
 }
 
 func NewHandler(db *sqlx.DB) *Handler {
@@ -31,6 +32,7 @@ func NewHandler(db *sqlx.DB) *Handler {
 		userRepo:     repository.NewUserRepo(db),
 		articleRepo:  repository.NewArticleRepo(db),
 		templateRepo: repository.NewTemplateRepo(db),
+		tagRepo:      repository.NewTagRepo(db),
 	}
 }
 
@@ -80,6 +82,10 @@ func (h *Handler) Setup() *gin.Engine {
 		auth.GET("/templates/:id", h.getTemplate)
 		auth.PUT("/templates/:id", h.updateTemplate)
 		auth.DELETE("/templates/:id", h.deleteTemplate)
+
+		auth.GET("/tags", h.listTags)
+		auth.POST("/tags", h.createTag)
+		auth.DELETE("/tags/:id", h.deleteTag)
 	}
 
 	return r
@@ -214,6 +220,7 @@ func (h *Handler) getConfig(c *gin.Context) {
 		WechatAppID:   cfg.WechatAppID,
 		HasSecret:     cfg.WechatSecret != "",
 		DefaultAuthor: cfg.DefaultAuthor,
+		LastAuthor:    cfg.LastAuthor,
 	}
 	c.JSON(http.StatusOK, safe)
 }
@@ -246,6 +253,7 @@ func (h *Handler) listArticles(c *gin.Context) {
 		PageSize: getIntQuery(c, "page_size", 20),
 		Status:   c.Query("status"),
 		Search:   c.Query("search"),
+		TagID:    getInt64Query(c, "tag_id", 0),
 	}
 
 	result, err := h.articleRepo.List(req, uid)
@@ -253,17 +261,27 @@ func (h *Handler) listArticles(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询失败"})
 		return
 	}
+
+	// 为每个文章填充标签
+	for i := range result.Items {
+		tags, err := h.tagRepo.GetByArticleID(result.Items[i].ID)
+		if err == nil {
+			result.Items[i].Tags = tags
+		}
+	}
+
 	c.JSON(http.StatusOK, result)
 }
 
 func (h *Handler) createArticle(c *gin.Context) {
 	uid := getUserID(c)
 	var req struct {
-		Title    string `json:"title"`
-		Markdown string `json:"markdown"`
-		Summary  string `json:"summary"`
-		CoverURL string `json:"cover_url"`
-		Status   string `json:"status"`
+		Title    string  `json:"title"`
+		Markdown string  `json:"markdown"`
+		Summary  string  `json:"summary"`
+		CoverURL string  `json:"cover_url"`
+		Status   string  `json:"status"`
+		TagIDs   []int64 `json:"tag_ids"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
@@ -293,7 +311,22 @@ func (h *Handler) createArticle(c *gin.Context) {
 		return
 	}
 
+	// 设置文章标签
+	if len(req.TagIDs) > 0 {
+		if err := h.tagRepo.SetArticleTags(id, req.TagIDs); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "设置标签失败"})
+			return
+		}
+	}
+
 	article, _ := h.articleRepo.GetByID(id, uid)
+	// 填充标签
+	if article != nil {
+		tags, err := h.tagRepo.GetByArticleID(id)
+		if err == nil {
+			article.Tags = tags
+		}
+	}
 	c.JSON(http.StatusCreated, article)
 }
 
@@ -304,6 +337,11 @@ func (h *Handler) getArticle(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "文章不存在"})
 		return
+	}
+	// 填充标签
+	tags, err := h.tagRepo.GetByArticleID(id)
+	if err == nil {
+		article.Tags = tags
 	}
 	c.JSON(http.StatusOK, article)
 }
@@ -319,11 +357,12 @@ func (h *Handler) updateArticle(c *gin.Context) {
 	}
 
 	var req struct {
-		Title    string `json:"title"`
-		Markdown string `json:"markdown"`
-		Summary  string `json:"summary"`
-		CoverURL string `json:"cover_url"`
-		Status   string `json:"status"`
+		Title    string  `json:"title"`
+		Markdown string  `json:"markdown"`
+		Summary  string  `json:"summary"`
+		CoverURL string  `json:"cover_url"`
+		Status   string  `json:"status"`
+		TagIDs   []int64 `json:"tag_ids"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
@@ -350,6 +389,18 @@ func (h *Handler) updateArticle(c *gin.Context) {
 	if err := h.articleRepo.Update(existing); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新失败"})
 		return
+	}
+
+	// 设置文章标签（即使 tag_ids 为空也要清除已有标签）
+	if err := h.tagRepo.SetArticleTags(id, req.TagIDs); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "设置标签失败"})
+		return
+	}
+
+	// 填充标签
+	tags, err := h.tagRepo.GetByArticleID(id)
+	if err == nil {
+		existing.Tags = tags
 	}
 
 	c.JSON(http.StatusOK, existing)
@@ -629,23 +680,26 @@ func (h *Handler) publish(c *gin.Context) {
 		return
 	}
 
-	// 保存到数据库
+	// 保存到数据库，状态为已发布
 	wordCount := len([]rune(markdown))
 	h.articleRepo.Create(&models.Article{
 		UserID:       uid,
 		Title:        title,
 		Markdown:     markdown,
 		Summary:      digest,
-		Status:       "draft",
+		Status:       "published",
 		DraftMediaID: result.DraftMediaID,
 		WordCount:    wordCount,
 	})
+
+	// 保存本次发布使用的作者名，下次发布时自动回填
+	h.userRepo.SaveLastAuthor(uid, author)
 
 	c.JSON(http.StatusOK, gin.H{
 		"ok":             true,
 		"title":          title,
 		"draft_media_id": result.DraftMediaID,
-		"status":         result.Status,
+		"status":         "published",
 	})
 }
 
@@ -667,6 +721,14 @@ func getIntQuery(c *gin.Context, key string, defaultVal int) int {
 
 func getIntParam(c *gin.Context, key string) int64 {
 	v, _ := strconv.ParseInt(c.Param(key), 10, 64)
+	return v
+}
+
+func getInt64Query(c *gin.Context, key string, defaultVal int64) int64 {
+	v, err := strconv.ParseInt(c.Query(key), 10, 64)
+	if err != nil || v < 1 {
+		return defaultVal
+	}
 	return v
 }
 
@@ -714,4 +776,44 @@ func extractSummary(md string) string {
 		return s
 	}
 	return ""
+}
+
+// ─── 标签 ─────────────────────────────────────────────────────
+
+func (h *Handler) listTags(c *gin.Context) {
+	uid := getUserID(c)
+	tags, err := h.tagRepo.List(uid)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询失败"})
+		return
+	}
+	c.JSON(http.StatusOK, tags)
+}
+
+func (h *Handler) createTag(c *gin.Context) {
+	uid := getUserID(c)
+	var req struct {
+		Name string `json:"name" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误：标签名称不能为空"})
+		return
+	}
+
+	tag, err := h.tagRepo.Create(uid, req.Name)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建标签失败"})
+		return
+	}
+	c.JSON(http.StatusCreated, tag)
+}
+
+func (h *Handler) deleteTag(c *gin.Context) {
+	uid := getUserID(c)
+	id := getIntParam(c, "id")
+	if err := h.tagRepo.Delete(id, uid); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除标签失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "已删除"})
 }
