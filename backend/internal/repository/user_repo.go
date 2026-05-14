@@ -58,10 +58,18 @@ func (r *UserRepo) GetConfig(userID int64) (*models.UserConfig, error) {
 }
 
 func (r *UserRepo) UpdateConfig(userID int64, appID, secret, author string) error {
+	if secret != "" {
+		_, err := r.db.Exec(`UPDATE user_configs SET
+			wechat_app_id = ?, wechat_secret = ?, default_author = ?, updated_at = datetime('now')
+			WHERE user_id = ?`,
+			appID, secret, author, userID,
+		)
+		return err
+	}
 	_, err := r.db.Exec(`UPDATE user_configs SET
-		wechat_app_id = ?, wechat_secret = ?, default_author = ?, updated_at = datetime('now')
+		wechat_app_id = ?, default_author = ?, updated_at = datetime('now')
 		WHERE user_id = ?`,
-		appID, secret, author, userID,
+		appID, author, userID,
 	)
 	return err
 }
