@@ -25,6 +25,7 @@ type Handler struct {
 	templateRepo  *repository.TemplateRepo
 	tagRepo       *repository.TagRepo
 	mediaRepo     *repository.MediaRepo
+	revisionRepo  *repository.RevisionRepo
 }
 
 func NewHandler(db *sqlx.DB) *Handler {
@@ -35,6 +36,7 @@ func NewHandler(db *sqlx.DB) *Handler {
 		templateRepo: repository.NewTemplateRepo(db),
 		tagRepo:      repository.NewTagRepo(db),
 		mediaRepo:    repository.NewMediaRepo(db),
+			revisionRepo:  repository.NewRevisionRepo(db),
 	}
 }
 
@@ -73,6 +75,9 @@ func (h *Handler) Setup() *gin.Engine {
 		auth.GET("/articles/:id", h.getArticle)
 		auth.PUT("/articles/:id", h.updateArticle)
 		auth.DELETE("/articles/:id", h.deleteArticle)
+		auth.GET("/articles/:id/revisions", h.listRevisions)
+		auth.GET("/revisions/:id", h.getRevision)
+		auth.POST("/articles/:id/revisions/:rid/restore", h.restoreRevision)
 
 		auth.POST("/editor/preview", h.preview)
 		auth.POST("/editor/upload-image", h.uploadImage)
@@ -403,6 +408,16 @@ func (h *Handler) updateArticle(c *gin.Context) {
 		return
 	}
 
+	// Create revision snapshot on update
+	h.revisionRepo.Create(&models.Revision{
+		ArticleID: id,
+		UserID:    uid,
+		Title:     existing.Title,
+		Markdown:  existing.Markdown,
+		WordCount: existing.WordCount,
+	})
+	// Keep only 30 most recent revisions per article
+	h.revisionRepo.DeleteOldRevisions(id, 30)
 	// 填充标签
 	tags, err := h.tagRepo.GetByArticleID(id)
 	if err == nil {
@@ -877,4 +892,81 @@ func (h *Handler) deleteTag(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "已删除"})
+}
+
+// ─── 版本历史 ────────────────────────────────────────────────────
+
+func (h *Handler) listRevisions(c *gin.Context) {
+	uid := getUserID(c)
+	articleID := getIntParam(c, "id")
+	page := getIntQuery(c, "page", 1)
+	pageSize := getIntQuery(c, "page_size", 20)
+
+	if _, err := h.articleRepo.GetByID(articleID, uid); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "文章不存在"})
+		return
+	}
+
+	items, total, err := h.revisionRepo.List(articleID, uid, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"total": total,
+		"page":  page,
+		"items": items,
+	})
+}
+
+func (h *Handler) getRevision(c *gin.Context) {
+	uid := getUserID(c)
+	rid := getIntParam(c, "id")
+
+	rev, err := h.revisionRepo.GetByID(rid, uid)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "版本不存在"})
+		return
+	}
+	c.JSON(http.StatusOK, rev)
+}
+
+func (h *Handler) restoreRevision(c *gin.Context) {
+	uid := getUserID(c)
+	articleID := getIntParam(c, "id")
+	rid := getIntParam(c, "rid")
+
+	existing, err := h.articleRepo.GetByID(articleID, uid)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "文章不存在"})
+		return
+	}
+
+	rev, err := h.revisionRepo.GetByID(rid, uid)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "版本不存在"})
+		return
+	}
+
+	// Snapshot current state before restoring
+	h.revisionRepo.Create(&models.Revision{
+		ArticleID: articleID,
+		UserID:    uid,
+		Title:     existing.Title,
+		Markdown:  existing.Markdown,
+		WordCount: existing.WordCount,
+	})
+
+	existing.Title = rev.Title
+	existing.Markdown = rev.Markdown
+	existing.WordCount = rev.WordCount
+	if err := h.articleRepo.Update(existing); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "恢复失败"})
+		return
+	}
+
+	tags, _ := h.tagRepo.GetByArticleID(articleID)
+	existing.Tags = tags
+
+	c.JSON(http.StatusOK, existing)
 }
