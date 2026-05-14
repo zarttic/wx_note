@@ -180,12 +180,13 @@ export const editorApi = {
     });
   },
 
-  publish({ markdown, cover, author, theme = 'default' }) {
+  publish({ markdown, cover, author, theme = 'default', articleId }) {
     const formData = new FormData();
     formData.append('markdown', markdown);
     if (cover) formData.append('cover', cover);
     if (author) formData.append('author', author);
     if (theme) formData.append('theme', theme);
+    if (articleId) formData.append('article_id', articleId);
     return request('/editor/publish', {
       method: 'POST',
       body: formData,

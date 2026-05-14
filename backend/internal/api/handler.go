@@ -722,7 +722,41 @@ func (h *Handler) publish(c *gin.Context) {
 		return
 	}
 
-	// 保存到数据库，状态为已发布
+	// 保存本次发布使用的作者名，下次发布时自动回填
+	h.userRepo.SaveLastAuthor(uid, author)
+
+	// 如果传了 article_id，更新已有文章；否则创建新文章
+	articleIDStr := c.PostForm("article_id")
+	if articleIDStr != "" {
+		articleID, err := strconv.ParseInt(articleIDStr, 10, 64)
+		if err == nil {
+			existing, err := h.articleRepo.GetByID(articleID, uid)
+			if err == nil {
+				existing.Status = "published"
+				existing.DraftMediaID = result.DraftMediaID
+				existing.Title = title
+				existing.Markdown = markdown
+				existing.Summary = digest
+				existing.WordCount = len([]rune(markdown))
+				h.articleRepo.Update(existing)
+
+				// Fill tags for response
+				tags, _ := h.tagRepo.GetByArticleID(articleID)
+				existing.Tags = tags
+
+				c.JSON(http.StatusOK, gin.H{
+					"ok":             true,
+					"title":          title,
+					"draft_media_id": result.DraftMediaID,
+					"status":         "published",
+					"article_id":     articleID,
+				})
+				return
+			}
+		}
+	}
+
+	// No article_id or article not found — create new
 	wordCount := len([]rune(markdown))
 	h.articleRepo.Create(&models.Article{
 		UserID:       uid,
@@ -733,9 +767,6 @@ func (h *Handler) publish(c *gin.Context) {
 		DraftMediaID: result.DraftMediaID,
 		WordCount:    wordCount,
 	})
-
-	// 保存本次发布使用的作者名，下次发布时自动回填
-	h.userRepo.SaveLastAuthor(uid, author)
 
 	c.JSON(http.StatusOK, gin.H{
 		"ok":             true,

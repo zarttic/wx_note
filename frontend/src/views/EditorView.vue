@@ -537,6 +537,7 @@ async function handlePublish() {
       cover: coverImage.value,
       author: weConfig.value.last_author || weConfig.value.default_author,
       theme: currentTheme.value,
+      articleId: articleId.value,
     })
     if (result.ok) {
       // Save cover filename to localStorage
