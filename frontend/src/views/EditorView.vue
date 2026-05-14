@@ -7,7 +7,7 @@ import 'md-editor-v3/lib/style.css'
 const MdEditor = defineAsyncComponent(() =>
   import('md-editor-v3').then(m => m.MdEditor)
 )
-import { editorApi, articleApi, templateApi, tagApi, mediaApi } from '@/api/client.js'
+import { editorApi, articleApi, templateApi, tagApi, mediaApi, revisionApi } from '@/api/client.js'
 import { useAuthStore } from '@/stores/auth'
 import {
   Save,
@@ -23,6 +23,9 @@ import {
   CircleAlert,
   CircleCheck,
   Tag,
+  History,
+  RotateCcw,
+  Sparkles,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -219,6 +222,69 @@ const publishResult = ref(null)
 // ─── Last Cover Hint ────────────────────────────────────────────
 
 const lastCoverName = ref(localStorage.getItem('wx_note_last_cover_name') || '')
+
+// ─── Revision History ────────────────────────────────────────────
+
+const showRevisionPanel = ref(false)
+const revisions = ref([])
+const revisionsLoading = ref(false)
+const previewRevision = ref(null)
+const previewRevisionContent = ref(null)
+const restoringRevision = ref(false)
+
+async function openRevisionPanel() {
+  if (!articleId.value) {
+    showToast('请先保存文章', 'info')
+    return
+  }
+  showRevisionPanel.value = true
+  revisionsLoading.value = true
+  try {
+    const data = await revisionApi.list(articleId.value, 1, 30)
+    revisions.value = data.items || []
+  } catch (e) {
+    revisions.value = []
+    showToast('加载历史版本失败', 'error')
+  } finally {
+    revisionsLoading.value = false
+  }
+}
+
+function closeRevisionPanel() {
+  showRevisionPanel.value = false
+  previewRevision.value = null
+  previewRevisionContent.value = null
+}
+
+async function viewRevision(rev) {
+  previewRevision.value = rev.id
+  try {
+    const data = await revisionApi.get(rev.id)
+    previewRevisionContent.value = { title: data.title, markdown: data.markdown }
+  } catch (e) {
+    showToast('加载版本内容失败', 'error')
+  }
+}
+
+async function restoreRevision(rev) {
+  if (!articleId.value) return
+  restoringRevision.value = true
+  try {
+    const data = await revisionApi.restore(articleId.value, rev.id)
+    markdown.value = data.markdown || ''
+    articleTitle.value = data.title || ''
+    articleTags.value = data.tags || []
+    lastSavedAt.value = data.updated_at || new Date().toISOString()
+    closeRevisionPanel()
+    await nextTick()
+    await updatePreview()
+    showToast('已恢复到历史版本', 'success')
+  } catch (e) {
+    showToast('恢复失败：' + e.message, 'error')
+  } finally {
+    restoringRevision.value = false
+  }
+}
 
 // ─── Toast ──────────────────────────────────────────────────────
 
@@ -561,6 +627,13 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleGlobalKeydown)
 })
 
+function formatDateShort(str) {
+  if (!str) return '--'
+  const d = new Date(str)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 </script>
 
 <template>
@@ -589,6 +662,10 @@ onBeforeUnmount(() => {
           <button class="btn btn-ghost btn-sm" @click="openMediaPicker">
             <Image :size="13" :stroke-width="2" />
             素材库
+          </button>
+          <button class="btn btn-ghost btn-sm" @click="openRevisionPanel">
+            <History :size="13" :stroke-width="2" />
+            历史
           </button>
           <button class="btn btn-secondary btn-sm" :disabled="isSaving" @click="saveArticle">
             <Loader2 v-if="isSaving" :size="12" class="animate-spin" />
@@ -815,6 +892,65 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Revision History Panel -->
+    <div v-if="showRevisionPanel" class="modal-overlay" @click.self="closeRevisionPanel">
+      <div class="modal revision-modal">
+        <div class="modal-header">
+          <h3 class="modal-title">历史版本</h3>
+          <button class="btn btn-ghost btn-sm" @click="closeRevisionPanel">
+            <X :size="14" :stroke-width="2" />
+          </button>
+        </div>
+        <div class="modal-body revision-body">
+          <div class="revision-sidebar">
+            <div v-if="revisionsLoading" class="template-loading">
+              <Loader2 :size="16" class="animate-spin" />
+              <span>加载中...</span>
+            </div>
+            <div v-else-if="revisions.length === 0" class="revision-empty">
+              <History :size="24" :stroke-width="1.2" class="empty-icon" />
+              <p>暂无历史版本</p>
+              <p style="font-size: 11px; color: var(--color-text-tertiary);">保存文章时自动记录版本</p>
+            </div>
+            <div v-else class="revision-list">
+              <button
+                v-for="rev in revisions"
+                :key="rev.id"
+                class="revision-item"
+                :class="{ active: previewRevision === rev.id }"
+                @click="viewRevision(rev)"
+              >
+                <div class="revision-item-title">{{ rev.title || '无标题' }}</div>
+                <div class="revision-item-meta">{{ rev.word_count || 0 }} 字</div>
+                <div class="revision-item-date">{{ formatDateShort(rev.created_at) }}</div>
+              </button>
+            </div>
+          </div>
+          <div class="revision-preview">
+            <div v-if="!previewRevisionContent" class="revision-preview-empty">
+              <p>选择左侧版本查看内容</p>
+            </div>
+            <div v-else class="revision-preview-content">
+              <h4 class="revision-preview-title">{{ previewRevisionContent.title }}</h4>
+              <pre class="revision-preview-md">{{ previewRevisionContent.markdown }}</pre>
+            </div>
+          </div>
+        </div>
+        <div v-if="previewRevision" class="modal-footer">
+          <button class="btn btn-secondary" @click="closeRevisionPanel">取消</button>
+          <button
+            class="btn btn-primary"
+            :disabled="restoringRevision"
+            @click="restoreRevision(revisions.find(r => r.id === previewRevision))"
+          >
+            <RotateCcw v-if="!restoringRevision" :size="13" :stroke-width="2" />
+            <Loader2 v-else :size="13" class="animate-spin" />
+            {{ restoringRevision ? '恢复中...' : '恢复此版本' }}
+          </button>
         </div>
       </div>
     </div>
@@ -1558,5 +1694,134 @@ onBeforeUnmount(() => {
   .editor-pane { flex: none; height: 50%; border-right: none; border-bottom: 1px solid var(--color-border); }
   .preview-pane { flex: none; height: 50%; }
   .phone-screen { width: 320px; }
+}
+
+/* ─── Revision Panel ─────────────────────────────────────────── */
+
+.revision-modal {
+  width: 720px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.revision-body {
+  display: flex;
+  min-height: 400px;
+  overflow: hidden;
+  padding: 0 !important;
+}
+
+.revision-sidebar {
+  width: 220px;
+  border-right: 1px solid var(--color-border-subtle);
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.revision-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 16px;
+  gap: 8px;
+  text-align: center;
+}
+
+.revision-empty p {
+  font-size: 13px;
+  color: var(--color-text-tertiary);
+  margin: 0;
+}
+
+.revision-list {
+  padding: 4px;
+}
+
+.revision-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-sans);
+  transition: background 0.12s;
+}
+
+.revision-item:hover {
+  background: #f3f4f6;
+}
+
+.revision-item.active {
+  background: var(--color-accent-subtle);
+}
+
+.revision-item-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.revision-item-meta {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+.revision-item-date {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.revision-preview {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px;
+}
+
+.revision-preview-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+}
+
+.revision-preview-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.revision-preview-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.revision-preview-md {
+  font-size: 12px;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-sunken);
+  padding: 14px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+  margin: 0;
 }
 </style>

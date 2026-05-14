@@ -234,3 +234,19 @@ export const templateApi = {
     return Array.isArray(data) ? data : [];
   },
 };
+
+export const revisionApi = {
+  list(articleId, page = 1, pageSize = 20) {
+    return request(`/articles/${articleId}/revisions?page=${page}&page_size=${pageSize}`);
+  },
+
+  get(id) {
+    return request(`/revisions/${id}`);
+  },
+
+  restore(articleId, revisionId) {
+    return request(`/articles/${articleId}/revisions/${revisionId}/restore`, {
+      method: 'POST',
+    });
+  },
+};
