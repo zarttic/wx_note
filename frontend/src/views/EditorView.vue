@@ -8,6 +8,7 @@ const MdEditor = defineAsyncComponent(() =>
   import('md-editor-v3').then(m => m.MdEditor)
 )
 import { editorApi, articleApi, templateApi, tagApi, mediaApi, revisionApi } from '@/api/client.js'
+import { formatMarkdown } from '@/utils/formatter.js'
 import { useAuthStore } from '@/stores/auth'
 import {
   Save,
@@ -284,6 +285,23 @@ async function restoreRevision(rev) {
   } finally {
     restoringRevision.value = false
   }
+}
+
+// ─── One-Click Formatting ─────────────────────────────────────────
+
+function handleFormat() {
+  if (!markdown.value.trim()) {
+    showToast('内容为空，无需排版', 'info')
+    return
+  }
+  const before = markdown.value
+  const formatted = formatMarkdown(before)
+  if (formatted === before) {
+    showToast('内容已符合排版规范', 'info')
+    return
+  }
+  markdown.value = formatted
+  showToast('排版完成', 'success')
 }
 
 // ─── Toast ──────────────────────────────────────────────────────
@@ -662,6 +680,10 @@ function formatDateShort(str) {
           <button class="btn btn-ghost btn-sm" @click="openMediaPicker">
             <Image :size="13" :stroke-width="2" />
             素材库
+          </button>
+          <button class="btn btn-ghost btn-sm" @click="handleFormat" title="中英文间加空格、标点修正、段落间距统一">
+            <Sparkles :size="13" :stroke-width="2" />
+            排版
           </button>
           <button class="btn btn-ghost btn-sm" @click="openRevisionPanel">
             <History :size="13" :stroke-width="2" />
