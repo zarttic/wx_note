@@ -314,3 +314,105 @@ CREATE INDEX IF NOT EXISTS idx_revisions_article ON article_revisions(article_id
 **文件：** `frontend/src/utils/formatter.js`
 - `formatMarkdown(text)` 入口函数
 - 自动识别并跳过代码块区域
+
+---
+
+## 第四批改进 ✅ 已完成
+
+### 10. 发布流程修复 ✅
+
+**问题：** 当前发布存在多个严重缺陷：
+- 每次发布都创建新文章记录，导致重复条目
+- 封面图不持久化
+- AppSecret 更新 bug
+
+**实现方案：**
+
+**10a. 发布关联已有文章 ✅：**
+- 前端发布时传 `article_id` 参数（取自 `articleId.value`）
+- 后端 publish handler：如果传了 article_id 且文章存在，更新该文章的 status/draft_media_id
+- 无 article_id 时仍创建新文章（兼容直接发布流程）
+
+**10b. 封面图持久化 ✅：**
+- 保存文章时 payload 包含 `cover_url` 字段
+- 加载文章时从 `article.cover_url` 恢复封面预览
+- 无 cover_url 时清除旧的封面预览
+
+**10c. AppSecret 更新修复 ✅：**
+- 后端 `UpdateConfig` 改为条件更新：secret 非空时更新 wechat_secret，为空时跳过
+- 前端已有"留空保持不变"提示文字
+
+---
+
+### 11. N+1 查询优化 ✅
+
+**问题：** listArticles 每篇文章单独查询标签，reorder 逐条 UPDATE。
+
+**实现方案：**
+
+**11a. 文章列表标签批量加载 ✅：**
+- `tag_repo.go` 新增 `GetByArticleIDs` 方法
+- 单次 IN 查询 + Go 端分组返回 `map[int64][]Tag`
+- `listArticles` handler 用批量查询替代循环
+
+**11b. 批量排序更新 ✅：**
+- `article_repo.go` / `template_repo.go` 新增 `BatchUpdateSortOrder` 方法
+- 使用事务批量 UPDATE
+- reorder handler 改为调用批量方法
+
+---
+
+### 12. 编辑器体验增强 ✅
+
+**问题：** 编辑器缺少粘贴图片、查找替换、任务列表、下载功能。
+
+**实现方案：**
+
+**12a. 粘贴图片支持 ✅：**
+- MdEditor 添加 `@on-paste-image="handleEditorUploadImage"` prop
+- 复用现有上传逻辑
+
+**12b. 查找替换 ✅：**
+- toolbar 配置添加 `'find'` 项
+
+**12c. 任务列表 ✅：**
+- toolbar 配置添加 `'task'` 项
+
+**12d. 下载 Markdown ✅：**
+- 工具栏添加"下载"按钮（Download 图标）
+- Blob + 触发下载，文件名从标题生成
+
+---
+
+### 13. 从文章创建模板 ✅
+
+**问题：** 模板必须从模板管理页面手动创建。
+
+**实现方案 ✅：**
+- 编辑器工具栏添加"存模板"按钮（Bookmark 图标）
+- 弹窗输入模板名称和分类
+- 调用 `templateApi.create()` 创建模板
+
+---
+
+### 14. 素材库直传 ✅
+
+**问题：** 素材库页面没有上传入口。
+
+**实现方案 ✅：**
+- 页面头部添加"上传图片"按钮
+- 支持多选文件，逐个调用 `editorApi.uploadImage` 上传
+- 上传中显示进度（X/Y）
+- 上传完成后自动刷新列表
+
+---
+
+### 15. WeChat Token 缓存 ✅
+
+**问题：** 每次 API 请求创建新 wechat.Client，token 不共享。
+
+**实现方案 ✅：**
+- Handler 新增 `wechatClients sync.Map` 字段
+- `getWechatClient(uid)` 辅助方法：优先从缓存取，否则创建并存储
+- 30 分钟 TTL 后自动清理
+- uploadImage、verifyWechat 改用缓存 client
