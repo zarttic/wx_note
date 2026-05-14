@@ -14,6 +14,8 @@ import {
   ChevronRight,
   Filter,
   Tag,
+  AlertTriangle,
+  X,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -31,7 +33,7 @@ const selectedTagId = ref('')
 const tags = ref([])
 const isLoading = ref(true)
 const deletingId = ref(null)
-const confirmDeleteId = ref(null)
+const deleteTarget = ref(null)
 const toasts = ref([])
 
 let searchTimer = null
@@ -118,20 +120,22 @@ function goToNew() {
   router.push('/editor')
 }
 
-function askDelete(id) {
-  confirmDeleteId.value = id
+function askDelete(article) {
+  deleteTarget.value = article
 }
 
 function cancelDelete() {
-  confirmDeleteId.value = null
+  deleteTarget.value = null
 }
 
-async function confirmDoDelete(id) {
+async function confirmDoDelete() {
+  const id = deleteTarget.value?.id
+  if (!id) return
   deletingId.value = id
   try {
     await articleApi.delete(id)
     showToast('文章已删除', 'success')
-    confirmDeleteId.value = null
+    deleteTarget.value = null
     if (articles.value.length === 1 && page.value > 1) {
       page.value -= 1
     }
@@ -313,34 +317,10 @@ const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize))
                     <Edit3 :size="14" :stroke-width="1.8" />
                   </button>
 
-                  <!-- Delete: confirm inline -->
-                  <template v-if="confirmDeleteId === article.id">
-                    <span class="confirm-text">确认删除？</span>
-                    <button
-                      class="confirm-btn confirm-yes"
-                      :disabled="deletingId === article.id"
-                      @click="confirmDoDelete(article.id)"
-                    >
-                      <Loader2
-                        v-if="deletingId === article.id"
-                        :size="12"
-                        class="animate-spin"
-                      />
-                      <span v-else>确认</span>
-                    </button>
-                    <button
-                      class="confirm-btn confirm-no"
-                      @click="cancelDelete"
-                    >
-                      取消
-                    </button>
-                  </template>
-
                   <button
-                    v-else
                     class="action-btn action-danger"
                     title="删除"
-                    @click="askDelete(article.id)"
+                    @click="askDelete(article)"
                   >
                     <Trash2 :size="14" :stroke-width="1.8" />
                   </button>
@@ -382,6 +362,36 @@ const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize))
         <ChevronRight :size="16" :stroke-width="2" />
       </button>
     </footer>
+
+    <!-- Delete Confirmation Modal -->
+    <div v-if="deleteTarget" class="modal-overlay" @click.self="cancelDelete">
+      <div class="modal delete-modal">
+        <div class="modal-header">
+          <h3 class="modal-title">确认删除</h3>
+          <button class="btn btn-ghost btn-sm" @click="cancelDelete">
+            <X :size="14" :stroke-width="2" />
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="delete-warning">
+            <AlertTriangle :size="20" :stroke-width="1.8" class="warning-icon" />
+            <p>确定要删除文章 <strong>「{{ deleteTarget.title || '无标题' }}」</strong>吗？此操作无法撤销。</p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" @click="cancelDelete">取消</button>
+          <button
+            class="btn btn-danger"
+            :disabled="deletingId === deleteTarget.id"
+            @click="confirmDoDelete"
+          >
+            <Loader2 v-if="deletingId === deleteTarget.id" :size="14" class="animate-spin" />
+            <Trash2 v-else :size="14" :stroke-width="2" />
+            {{ deletingId === deleteTarget.id ? '删除中...' : '确认删除' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -719,47 +729,111 @@ const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize))
   color: var(--color-status-error);
 }
 
-/* ─── Delete Confirmation ────────────────────────────────────── */
+/* ─── Delete Confirmation Modal ────────────────────────────────── */
 
-.confirm-text {
-  font-size: 12px;
-  color: var(--color-status-error);
-  font-weight: 500;
-  margin-left: 4px;
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fade-in 0.15s ease-out;
 }
 
-.confirm-btn {
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 500;
-  border: none;
-  cursor: pointer;
-  font-family: var(--font-sans);
-  transition: background 0.12s, opacity 0.12s;
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-.confirm-yes {
+.delete-modal {
+  background: var(--color-surface);
+  border-radius: 14px;
+  width: 400px;
+  max-width: 90vw;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  animation: modal-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modal-in {
+  from { transform: translateY(-8px) scale(0.97); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.modal-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.modal-body {
+  padding: 22px;
+}
+
+.delete-warning {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.warning-icon {
+  color: #f59e0b;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.delete-warning p {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.delete-warning strong {
+  color: var(--color-text-primary);
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 22px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.btn-danger {
   background: var(--color-status-error);
   color: #fff;
+  border: none;
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-sans);
+  transition: background 0.15s, opacity 0.15s;
 }
 
-.confirm-yes:hover:not(:disabled) {
+.btn-danger:hover:not(:disabled) {
   background: #dc2626;
 }
 
-.confirm-yes:disabled {
+.btn-danger:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-}
-
-.confirm-no {
-  background: var(--color-surface-sunken);
-  color: var(--color-text-secondary);
-}
-
-.confirm-no:hover {
-  background: #e5e7eb;
 }
 
 /* ─── Skeleton ───────────────────────────────────────────────── */
