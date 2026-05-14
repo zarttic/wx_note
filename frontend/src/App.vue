@@ -6,6 +6,7 @@ import {
   FileText,
   PenLine,
   List,
+  Image,
   Settings,
   LogOut,
   User,
@@ -22,6 +23,7 @@ const isLoggedIn = computed(() => authStore.isLoggedIn)
 const navItems = [
   { path: '/editor', label: '编辑器', icon: PenLine },
   { path: '/articles', label: '文章管理', icon: List },
+  { path: '/media', label: '素材库', icon: Image },
   { path: '/templates', label: '模板管理', icon: LayoutTemplate },
   { path: '/settings', label: '设置', icon: Settings },
 ]

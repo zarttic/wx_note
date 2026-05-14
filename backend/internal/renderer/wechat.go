@@ -3,6 +3,7 @@ package renderer
 import (
 	"bytes"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/yuin/goldmark"
@@ -18,7 +19,17 @@ import (
 var baseFont = "-apple-system,BlinkMacSystemFont,'Helvetica Neue','PingFang SC','Hiragino Sans GB','Microsoft YaHei UI','Microsoft YaHei',Arial,sans-serif"
 var monoFont = "'Geist Mono',ui-monospace,monospace"
 
-var styles = map[string]string{
+// currentTheme holds the active theme name; defaults to "default".
+var currentTheme string = "default"
+
+// styles is the active style mapping, updated when theme changes.
+var styles map[string]string
+
+// themeStyles maps theme name → style overrides (only keys that differ from default).
+var themeStyles map[string]map[string]string
+
+// defaultStyles is the full default (green) theme style mapping.
+var defaultStyles = map[string]string{
 	// Headings: use <section> + <strong> instead of <h1>/<h2>/<h3> because WeChat overrides h-tag styles
 	"h1":          "margin:0 0 16px;line-height:1.4;font-family:" + baseFont,
 	"h1_strong":   "font-size:22px;font-weight:700;color:#111;letter-spacing:-0.01em;font-family:" + baseFont,
@@ -58,6 +69,69 @@ var styles = map[string]string{
 	"sup":         "font-size:12px;color:#07c160;vertical-align:super;line-height:0",
 	"section_out": "font-size:16px;line-height:1.85;color:#2c2c2c;letter-spacing:0.01em;font-family:" + baseFont + ";word-break:break-word",
 	"section_in":  "padding:0",
+}
+
+func init() {
+	// Initialize styles with the default theme
+	styles = copyStyles(defaultStyles)
+
+	// Register theme overrides: each theme only stores keys that differ from defaultStyles
+	themeStyles = map[string]map[string]string{
+		"default": {}, // no overrides — identical to defaultStyles
+		"blue": map[string]string{
+			"h2":          "margin:32px 0 14px;padding-left:12px;border-left:3px solid #1e40af;line-height:1.45;font-family:" + baseFont,
+			"h2_strong":   "font-size:18px;font-weight:600;color:#1e293b;font-family:" + baseFont,
+			"a":           "color:#1e40af;text-decoration:none;font-weight:500;font-family:" + baseFont,
+			"bullet":      "color:#1e40af;font-size:16px;margin-right:8px;font-family:" + baseFont,
+			"ordered_num": "color:#1e40af;font-size:16px;font-weight:600;margin-right:8px;font-family:" + baseFont,
+			"sup":         "font-size:12px;color:#1e40af;vertical-align:super;line-height:0",
+			"code_inline": "background:#f3f4f6;padding:2px 6px;border-radius:4px;font-size:13px;font-family:" + monoFont + ";color:#1e40af",
+			"blockquote":  "margin:18px 0;padding:14px 18px;background:#eff6ff;border-left:3px solid #93c5fd;color:#555;font-size:15px;border-radius:0 6px 6px 0;line-height:1.85;font-family:" + baseFont,
+		},
+		"gray": map[string]string{
+			"h2":          "margin:32px 0 14px;padding-left:12px;border-left:3px solid #6b7280;line-height:1.45;font-family:" + baseFont,
+			"h2_strong":   "font-size:18px;font-weight:600;color:#111827;font-family:" + baseFont,
+			"a":           "color:#374151;text-decoration:none;font-weight:500;font-family:" + baseFont,
+			"bullet":      "color:#6b7280;font-size:16px;margin-right:8px;font-family:" + baseFont,
+			"ordered_num": "color:#6b7280;font-size:16px;font-weight:500;margin-right:8px;font-family:" + baseFont,
+			"sup":         "font-size:12px;color:#6b7280;vertical-align:super;line-height:0",
+			"code_inline": "background:#e5e7eb;padding:2px 6px;border-radius:4px;font-size:13px;font-family:" + monoFont + ";color:#6b7280",
+			"blockquote":  "margin:18px 0;padding:14px 18px;background:#f8f9fa;border-left:3px solid #9ca3af;color:#555;font-size:15px;border-radius:0 6px 6px 0;line-height:1.85;font-family:" + baseFont,
+		},
+	}
+}
+
+// copyStyles returns a shallow copy of a style map.
+func copyStyles(src map[string]string) map[string]string {
+	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+// SetTheme switches the active theme. Invalid names fall back to "default".
+func SetTheme(name string) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if _, ok := themeStyles[name]; !ok {
+		name = "default"
+	}
+	currentTheme = name
+	// Build styles: start from defaultStyles, then overlay theme overrides
+	styles = copyStyles(defaultStyles)
+	for k, v := range themeStyles[name] {
+		styles[k] = v
+	}
+}
+
+// AvailableThemes returns the list of registered theme names.
+func AvailableThemes() []string {
+	names := make([]string, 0, len(themeStyles))
+	for name := range themeStyles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func styleAttr(key string) string {
@@ -535,13 +609,28 @@ func (e *wechatExtender) Extend(m goldmark.Markdown) {
 
 // ─── Public API ─────────────────────────────────────────────────
 
-// Render converts markdown to WeChat-compatible HTML with inline styles.
+// Render converts markdown to WeChat-compatible HTML with inline styles (default theme).
 func Render(md string) string {
 	html, _ := RenderWithFootnotes(md)
 	return html
 }
 
-// RenderWithFootnotes converts markdown and returns HTML plus collected footnote URLs.
+// RenderWithTheme converts markdown to WeChat-compatible HTML using the specified theme.
+// Invalid or empty theme names fall back to "default".
+func RenderWithTheme(md string, theme string) string {
+	SetTheme(theme)
+	html, _ := RenderWithFootnotes(md)
+	return html
+}
+
+// RenderWithFootnotesAndTheme converts markdown and returns HTML plus collected footnote URLs,
+// using the specified theme. Invalid or empty theme names fall back to "default".
+func RenderWithFootnotesAndTheme(md string, theme string) (string, []string) {
+	SetTheme(theme)
+	return RenderWithFootnotes(md)
+}
+
+// RenderWithFootnotes converts markdown and returns HTML plus collected footnote URLs (default theme).
 func RenderWithFootnotes(md string) (string, []string) {
 	currentCollector = &footnoteCollector{}
 	linkFootnoteIdx = 0

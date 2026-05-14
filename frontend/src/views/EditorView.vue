@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { defineAsyncComponent } from 'vue'
 import 'md-editor-v3/lib/style.css'
@@ -7,12 +7,13 @@ import 'md-editor-v3/lib/style.css'
 const MdEditor = defineAsyncComponent(() =>
   import('md-editor-v3').then(m => m.MdEditor)
 )
-import { editorApi, articleApi, templateApi, tagApi } from '@/api/client.js'
+import { editorApi, articleApi, templateApi, tagApi, mediaApi } from '@/api/client.js'
 import { useAuthStore } from '@/stores/auth'
 import {
   Save,
   Send,
   ImagePlus,
+  Image,
   X,
   Loader2,
   Clock,
@@ -42,6 +43,27 @@ const autoSaveError = ref('')
 let autoSaveTimer = null
 let suppressAutoSave = false // suppress auto-save during initial load
 
+// ─── Theme ──────────────────────────────────────────────────────────
+
+const currentTheme = ref('default')
+const availableThemes = ref(['default', 'blue', 'gray'])
+
+const themeOptions = [
+  { key: 'default', color: '#07c160', label: '默认' },
+  { key: 'blue', color: '#1e40af', label: '商务' },
+  { key: 'gray', color: '#6b7280', label: '简约' },
+]
+
+// ─── Preview Toggle & Shortcuts ────────────────────────────────
+
+const showPreview = ref(true)
+const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
+const modKey = isMac ? 'Cmd' : 'Ctrl'
+
+const wordCount = computed(() => {
+  return markdown.value.length
+})
+
 // ─── Template Picker ─────────────────────────────────────────────
 
 const showTemplatePicker = ref(false)
@@ -70,6 +92,36 @@ function applyTemplate(tpl) {
   coverPreviewUrl.value = tpl.cover_url
   showTemplatePicker.value = false
   updatePreview()
+}
+
+// ─── Media Picker ────────────────────────────────────────────────
+
+const showMediaPicker = ref(false)
+const mediaList = ref([])
+const mediaLoading = ref(false)
+
+async function openMediaPicker() {
+  showMediaPicker.value = true
+  mediaLoading.value = true
+  try {
+    const result = await mediaApi.list(1, 40)
+    mediaList.value = result.items || []
+  } catch (e) {
+    mediaList.value = []
+    const msg = e?.message || '未知错误'
+    if (!msg.includes('401')) {
+      showToast('加载素材库失败：' + msg, 'error')
+    }
+  } finally {
+    mediaLoading.value = false
+  }
+}
+
+function insertMedia(item) {
+  const filename = item.filename || 'image'
+  const insertText = `![${filename}](${item.url})\n`
+  markdown.value += insertText
+  showMediaPicker.value = false
 }
 
 // ─── Preview ────────────────────────────────────────────────────
@@ -229,7 +281,7 @@ async function updatePreview() {
   }
   isPreviewLoading.value = true
   try {
-    const result = await editorApi.preview(markdown.value)
+    const result = await editorApi.preview(markdown.value, currentTheme.value)
     previewHtml.value = result.html || ''
     previewTitle.value = result.title || ''
     previewSummary.value = result.summary || ''
@@ -250,6 +302,10 @@ watch(markdown, () => {
   autoSaveTimer = setTimeout(() => {
     doSave({ notify: false, isAuto: true })
   }, 3000)
+})
+
+watch(currentTheme, () => {
+  updatePreview()
 })
 
 // ─── Article CRUD ────────────────────────────────────────────────
@@ -396,6 +452,7 @@ async function handlePublish() {
       markdown: markdown.value,
       cover: coverImage.value,
       author: weConfig.value.last_author || weConfig.value.default_author,
+      theme: currentTheme.value,
     })
     if (result.ok) {
       // Save cover filename to localStorage
@@ -444,7 +501,41 @@ async function loadWeConfig() {
   }
 }
 
+// ─── Keyboard Shortcuts ─────────────────────────────────────────
+
+function handleGlobalKeydown(e) {
+  const mod = e.metaKey || e.ctrlKey
+  if (!mod) return
+
+  // Ctrl/Cmd + S → Save
+  if (e.key === 's' && !e.shiftKey && !e.altKey) {
+    e.preventDefault()
+    saveArticle()
+    return
+  }
+
+  // Ctrl/Cmd + Shift + P → Publish to draft
+  if (e.key === 'p' && e.shiftKey) {
+    e.preventDefault()
+    if (canPublish.value) {
+      handlePublish()
+    } else if (publishHint.value) {
+      showToast(publishHint.value, 'info')
+    }
+    return
+  }
+
+  // Ctrl/Cmd + Shift + V → Toggle preview
+  if (e.key === 'v' && e.shiftKey) {
+    e.preventDefault()
+    showPreview.value = !showPreview.value
+    return
+  }
+}
+
 onMounted(async () => {
+  document.addEventListener('keydown', handleGlobalKeydown)
+
   if (!authStore.isLoggedIn) {
     router.push('/login')
     return
@@ -466,12 +557,16 @@ onMounted(async () => {
   setTimeout(() => { editorReady.value = true }, 100)
 })
 
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handleGlobalKeydown)
+})
+
 </script>
 
 <template>
   <div class="editor-layout">
     <!-- ─── Left: Editor ─────────────────────────────────────────── -->
-    <div class="editor-pane">
+    <div class="editor-pane" :class="{ 'preview-hidden-editor': !showPreview }">
       <!-- Toolbar -->
       <div class="editor-toolbar">
         <div class="toolbar-left">
@@ -490,6 +585,10 @@ onMounted(async () => {
             <LayoutTemplate :size="13" :stroke-width="2" />
             模板
             <ChevronDown :size="11" :stroke-width="2" />
+          </button>
+          <button class="btn btn-ghost btn-sm" @click="openMediaPicker">
+            <Image :size="13" :stroke-width="2" />
+            素材库
           </button>
           <button class="btn btn-secondary btn-sm" :disabled="isSaving" @click="saveArticle">
             <Loader2 v-if="isSaving" :size="12" class="animate-spin" />
@@ -524,10 +623,33 @@ onMounted(async () => {
           <span>加载编辑器...</span>
         </div>
       </div>
+
+      <!-- Status Bar -->
+      <div class="editor-status-bar">
+        <span class="status-shortcuts">{{ modKey }}+S 保存 &#x2502; {{ modKey }}+Shift+P 发布 &#x2502; {{ modKey }}+Shift+V 预览</span>
+        <span class="status-wordcount">{{ wordCount }} 字</span>
+      </div>
     </div>
 
     <!-- ─── Right: Preview + Publish ─────────────────────────────── -->
-    <div class="preview-pane">
+    <div class="preview-pane" v-show="showPreview">
+      <!-- Theme Switcher -->
+      <div class="theme-switcher">
+        <span class="theme-switcher-label">排版主题</span>
+        <div class="theme-options">
+          <button
+            v-for="opt in themeOptions"
+            :key="opt.key"
+            class="theme-btn"
+            :class="{ active: currentTheme === opt.key }"
+            @click="currentTheme = opt.key"
+          >
+            <span class="theme-dot" :style="{ background: opt.color, '--dot-color': opt.color }"></span>
+            <span class="theme-btn-label" :class="{ active: currentTheme === opt.key }">{{ opt.label }}</span>
+          </button>
+        </div>
+      </div>
+
       <!-- Phone Preview -->
       <div class="phone-frame">
         <div class="phone-screen">
@@ -653,6 +775,44 @@ onMounted(async () => {
               <div class="tpl-name">{{ tpl.name }}</div>
               <div class="tpl-category">{{ tpl.category }}</div>
               <div class="tpl-preview">{{ (tpl.content || '').slice(0, 80) }}...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Media Picker Modal -->
+    <div v-if="showMediaPicker" class="modal-overlay" @click.self="showMediaPicker = false">
+      <div class="modal media-picker-modal">
+        <div class="modal-header">
+          <h3 class="modal-title">从素材库选择图片</h3>
+          <button class="btn btn-ghost btn-sm" @click="showMediaPicker = false">
+            <X :size="14" :stroke-width="2" />
+          </button>
+        </div>
+        <div class="modal-body">
+          <div v-if="mediaLoading" class="template-loading">
+            <Loader2 :size="16" class="animate-spin" />
+            <span>加载中...</span>
+          </div>
+          <div v-else-if="mediaList.length === 0" class="template-empty">
+            <Image :size="24" :stroke-width="1.2" class="empty-icon" />
+            <p>暂无素材</p>
+            <p style="font-size: 12px; color: var(--color-text-tertiary);">编辑器中上传图片后会自动保存到素材库</p>
+          </div>
+          <div v-else class="media-picker-grid">
+            <div
+              v-for="item in mediaList"
+              :key="item.id"
+              class="media-picker-card"
+              @click="insertMedia(item)"
+            >
+              <div class="media-picker-image-wrapper">
+                <img :src="item.url" :alt="item.filename" class="media-picker-image" loading="lazy" />
+              </div>
+              <div class="media-picker-info">
+                <span class="media-picker-filename">{{ item.filename || '未命名' }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -829,6 +989,39 @@ onMounted(async () => {
   border-right: 1px solid var(--color-border-subtle);
 }
 
+/* ─── Status Bar ──────────────────────────────────────────────── */
+
+.editor-status-bar {
+  height: 24px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.status-shortcuts {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-sans);
+  user-select: none;
+}
+
+.status-wordcount {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+/* ─── Editor Full-Width (preview hidden) ──────────────────────── */
+
+.editor-pane.preview-hidden-editor {
+  border-right: none;
+}
+
 /* ─── Right: Preview ──────────────────────────────────────────── */
 
 .preview-pane {
@@ -838,6 +1031,73 @@ onMounted(async () => {
   overflow: hidden;
   background: #f3f4f6;
   min-width: 0;
+}
+
+/* ─── Theme Switcher ──────────────────────────────────────────── */
+
+.theme-switcher {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border-subtle);
+  flex-shrink: 0;
+}
+
+.theme-switcher-label {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  user-select: none;
+}
+
+.theme-options {
+  display: flex;
+  gap: 6px;
+}
+
+.theme-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.theme-btn:hover {
+  opacity: 0.85;
+}
+
+.theme-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+
+.theme-btn:hover .theme-dot {
+  transform: scale(1.1);
+}
+
+.theme-btn.active .theme-dot {
+  box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--dot-color);
+}
+
+.theme-btn-label {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  user-select: none;
+  transition: color 0.15s;
+}
+
+.theme-btn-label.active {
+  color: var(--color-text-primary);
 }
 
 .phone-frame {
@@ -1230,6 +1490,65 @@ onMounted(async () => {
 
 .success-actions .btn {
   min-width: 100px;
+}
+
+/* ─── Media Picker Modal ────────────────────────────────────── */
+
+.media-picker-modal {
+  width: 640px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.media-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.media-picker-card {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.media-picker-card:hover {
+  border-color: var(--color-accent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.media-picker-image-wrapper {
+  aspect-ratio: 1;
+  background: #f9fafb;
+  overflow: hidden;
+}
+
+.media-picker-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.2s;
+}
+
+.media-picker-card:hover .media-picker-image {
+  transform: scale(1.03);
+}
+
+.media-picker-info {
+  padding: 6px 8px;
+}
+
+.media-picker-filename {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
 }
 
 /* ─── Responsive ──────────────────────────────────────────────── */

@@ -24,6 +24,7 @@ type Handler struct {
 	articleRepo   *repository.ArticleRepo
 	templateRepo  *repository.TemplateRepo
 	tagRepo       *repository.TagRepo
+	mediaRepo     *repository.MediaRepo
 }
 
 func NewHandler(db *sqlx.DB) *Handler {
@@ -33,6 +34,7 @@ func NewHandler(db *sqlx.DB) *Handler {
 		articleRepo:  repository.NewArticleRepo(db),
 		templateRepo: repository.NewTemplateRepo(db),
 		tagRepo:      repository.NewTagRepo(db),
+		mediaRepo:    repository.NewMediaRepo(db),
 	}
 }
 
@@ -76,6 +78,7 @@ func (h *Handler) Setup() *gin.Engine {
 		auth.POST("/editor/upload-image", h.uploadImage)
 		auth.POST("/editor/verify", h.verifyWechat)
 		auth.POST("/editor/publish", h.publish)
+		auth.GET("/themes", h.listThemes)
 		auth.GET("/templates", h.listTemplates)
 		auth.POST("/templates", h.createTemplate)
 		auth.GET("/templates/categories/all", h.getTemplateCategories)
@@ -86,6 +89,9 @@ func (h *Handler) Setup() *gin.Engine {
 		auth.GET("/tags", h.listTags)
 		auth.POST("/tags", h.createTag)
 		auth.DELETE("/tags/:id", h.deleteTag)
+
+		auth.GET("/media", h.listMedia)
+		auth.DELETE("/media/:id", h.deleteMedia)
 	}
 
 	return r
@@ -536,6 +542,7 @@ func (h *Handler) getTemplateCategories(c *gin.Context) {
 
 type previewReq struct {
 	Markdown string `json:"markdown"`
+	Theme    string `json:"theme"`
 }
 
 type previewResp struct {
@@ -551,8 +558,13 @@ func (h *Handler) preview(c *gin.Context) {
 		return
 	}
 
+	theme := req.Theme
+	if theme == "" {
+		theme = "default"
+	}
+
 	title, body := extractTitle(req.Markdown)
-	html := renderer.Render(body)
+	html := renderer.RenderWithTheme(body, theme)
 	summary := extractSummary(body)
 
 	c.JSON(http.StatusOK, previewResp{
@@ -602,6 +614,14 @@ func (h *Handler) uploadImage(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("上传失败: %v", err)})
 		return
 	}
+
+	// 上传成功后记录到素材库
+	h.mediaRepo.Create(&models.Media{
+		UserID:   uid,
+		URL:      url,
+		Filename: header.Filename,
+		Size:     header.Size,
+	})
 
 	c.JSON(http.StatusOK, gin.H{"url": url})
 }
@@ -664,6 +684,11 @@ func (h *Handler) publish(c *gin.Context) {
 		author = cfg.DefaultAuthor
 	}
 
+	theme := c.PostForm("theme")
+	if theme == "" {
+		theme = "default"
+	}
+
 	title, body := extractTitle(markdown)
 	if title == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "文章标题不能为空"})
@@ -671,7 +696,7 @@ func (h *Handler) publish(c *gin.Context) {
 	}
 
 	digest := extractSummary(body)
-	htmlContent := renderer.Render(body)
+	htmlContent := renderer.RenderWithTheme(body, theme)
 
 	client := wechat.NewClient(cfg.WechatAppID, cfg.WechatSecret)
 	result, err := client.PublishArticle(title, htmlContent, coverPath, author, digest)
@@ -701,6 +726,13 @@ func (h *Handler) publish(c *gin.Context) {
 		"draft_media_id": result.DraftMediaID,
 		"status":         "published",
 	})
+}
+
+// ─── 主题 ───────────────────────────────────────────────────────
+
+func (h *Handler) listThemes(c *gin.Context) {
+	themes := renderer.AvailableThemes()
+	c.JSON(http.StatusOK, gin.H{"themes": themes})
 }
 
 // ─── 工具函数 ─────────────────────────────────────────────────
@@ -776,6 +808,35 @@ func extractSummary(md string) string {
 		return s
 	}
 	return ""
+}
+
+// ─── 素材 ─────────────────────────────────────────────────────
+
+func (h *Handler) listMedia(c *gin.Context) {
+	uid := getUserID(c)
+	page := getIntQuery(c, "page", 1)
+	pageSize := getIntQuery(c, "page_size", 20)
+
+	items, total, err := h.mediaRepo.List(uid, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"total": total,
+		"page":  page,
+		"items": items,
+	})
+}
+
+func (h *Handler) deleteMedia(c *gin.Context) {
+	uid := getUserID(c)
+	id := getIntParam(c, "id")
+	if err := h.mediaRepo.Delete(id, uid); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "已删除"})
 }
 
 // ─── 标签 ─────────────────────────────────────────────────────

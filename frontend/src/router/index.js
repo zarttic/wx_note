@@ -43,6 +43,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/media',
+    name: 'media',
+    component: () => import('../views/MediaListView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/templates',
     name: 'templates',
     component: () => import('../views/TemplateListView.vue'),

@@ -150,10 +150,10 @@ export const articleApi = {
 };
 
 export const editorApi = {
-  preview(markdown) {
+  preview(markdown, theme = 'default') {
     return request('/editor/preview', {
       method: 'POST',
-      body: JSON.stringify({ markdown }),
+      body: JSON.stringify({ markdown, theme }),
     });
   },
 
@@ -173,16 +173,26 @@ export const editorApi = {
     });
   },
 
-  publish({ markdown, cover, author }) {
+  publish({ markdown, cover, author, theme = 'default' }) {
     const formData = new FormData();
     formData.append('markdown', markdown);
     if (cover) formData.append('cover', cover);
     if (author) formData.append('author', author);
+    if (theme) formData.append('theme', theme);
     return request('/editor/publish', {
       method: 'POST',
       body: formData,
       headers: {},
     });
+  },
+};
+
+export const mediaApi = {
+  list(page = 1, pageSize = 40) {
+    return request(`/media?page=${page}&page_size=${pageSize}`);
+  },
+  delete(id) {
+    return request(`/media/${id}`, { method: 'DELETE' });
   },
 };
 
