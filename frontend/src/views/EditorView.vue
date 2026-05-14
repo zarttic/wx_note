@@ -401,6 +401,11 @@ async function loadArticle(id) {
     markdown.value = data.markdown || ''
     articleTitle.value = data.title || ''
     articleTags.value = data.tags || []
+    if (data.cover_url) {
+      coverPreviewUrl.value = data.cover_url
+    } else {
+      coverPreviewUrl.value = ''
+    }
     lastSavedAt.value = data.updated_at || data.created_at || null
     await nextTick()
     await updatePreview()
@@ -425,6 +430,7 @@ async function doSave({ notify = true, isAuto = false } = {}) {
       title: previewTitle.value || articleTitle.value || '未命名文章',
       markdown: markdown.value,
       tag_ids: articleTags.value.map(t => t.id),
+      cover_url: coverPreviewUrl.value || '',
     }
     if (isNewArticle.value) {
       const result = await articleApi.create(payload)
