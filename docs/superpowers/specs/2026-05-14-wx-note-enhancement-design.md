@@ -226,16 +226,91 @@ CREATE INDEX IF NOT EXISTS idx_media_user ON media(user_id, created_at DESC);
 
 ---
 
-## 第三批改进（远景）
+## 第三批改进 ✅ 已完成
 
-### 7. 文章历史版本
-- 新增 article_revisions 表，每次保存记录快照
-- 编辑器可查看和回滚历史版本
+### 7. 文章历史版本 ✅
 
-### 8. 拖拽排序
-- 文章列表支持拖拽调整排序
-- 模板列表支持拖拽排序
+**问题：** 文章修改后无法查看或恢复之前的内容。
 
-### 9. 一键排版
-- 自动优化 Markdown 内容：中英文间加空格、标点修正、段落间距统一
-- 前端实现，不需要后端支持
+**实现方案：**
+- 新增 `article_revisions` 表，每次保存文章自动记录快照
+- 每篇文章保留最近 30 个版本，自动清理旧版本
+- 恢复版本前自动创建当前内容快照（可再次恢复回去）
+- 编辑器工具栏"历史"按钮打开版本面板
+
+**数据库变更：**
+```sql
+CREATE TABLE IF NOT EXISTS article_revisions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title      TEXT NOT NULL DEFAULT '',
+    markdown   TEXT NOT NULL DEFAULT '',
+    word_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_revisions_article ON article_revisions(article_id, created_at DESC);
+```
+
+**后端变更：**
+- 新增文件：`backend/internal/models/revision.go`（Revision 结构体）
+- 新增文件：`backend/internal/repository/revision_repo.go`（Create/List/GetByID/DeleteOldRevisions）
+- handler.go 新增路由：GET /articles/:id/revisions, GET /revisions/:id, POST /articles/:id/revisions/:rid/restore
+- updateArticle handler：保存成功后自动创建版本快照 + 清理旧版本
+- restoreRevision handler：恢复前先创建当前快照，再更新文章内容
+
+**前端变更：**
+- `api/client.js` 新增 `revisionApi`（list/get/restore）
+- `EditorView.vue` 新增版本历史面板：
+  - 左侧版本列表（标题 + 字数 + 日期）
+  - 右侧版本内容预览
+  - "恢复此版本"按钮
+  - 空状态提示
+
+---
+
+### 8. 拖拽排序 ✅
+
+**问题：** 文章和模板列表无法手动调整排序。
+
+**实现方案：**
+- 使用原生 HTML5 Drag and Drop API，无需额外依赖
+- 拖拽手柄（GripVertical 图标），hover 时显示
+- 拖拽中半透明效果，放置目标高亮
+- 拖拽完成后立即调用后端保存排序
+
+**后端变更：**
+- `article_repo.go` 新增 `UpdateSortOrder()` 方法
+- `template_repo.go` 新增 `UpdateSortOrder()` 方法
+- `db.go` 新增迁移：articles 表增加 sort_order 列
+- handler.go 新增路由：PUT /articles/reorder, PUT /templates/reorder
+- 文章列表查询排序改为 `sort_order ASC, updated_at DESC`
+
+**前端变更：**
+- `api/client.js` 新增 `articleApi.reorder()`, `templateApi.reorder()`
+- `ArticleListView.vue` 新增拖拽手柄列 + 行级拖拽
+- `TemplateListView.vue` 新增卡片级拖拽 + 手柄
+
+---
+
+### 9. 一键排版 ✅
+
+**问题：** 中文 Markdown 内容常见排版问题：中英文无空格、半角标点、多余空行。
+
+**实现方案：**
+- 纯前端实现，不需要后端支持
+- 编辑器工具栏新增"排版"按钮（Sparkles 图标）
+- 点击后对 markdown 内容执行格式化，无变化时提示"已符合规范"
+
+**格式化规则：**
+- 中英文间自动加空格：`你好world` → `你好 world`
+- 中文数字间自动加空格：`123个` → `123 个`
+- 半角标点转全角（仅中文语境）：逗号、句号、冒号、分号
+- 去除全角标点前后的多余空格
+- 多余空行合并为单个空行
+- 行尾空格清理
+- 跳过代码块（```...```）不处理
+
+**文件：** `frontend/src/utils/formatter.js`
+- `formatMarkdown(text)` 入口函数
+- 自动识别并跳过代码块区域
