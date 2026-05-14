@@ -27,6 +27,8 @@ import {
   History,
   RotateCcw,
   Sparkles,
+  Download,
+  Bookmark,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -302,6 +304,24 @@ function handleFormat() {
   }
   markdown.value = formatted
   showToast('排版完成', 'success')
+}
+
+// ─── Download Markdown ─────────────────────────────────────────────
+
+function handleDownload() {
+  if (!markdown.value.trim()) {
+    showToast('内容为空，无需下载', 'info')
+    return
+  }
+  const title = previewTitle.value || articleTitle.value || '未命名文章'
+  const filename = title.replace(/[\\/:*?"<>|]/g, '_') + '.md'
+  const blob = new Blob([markdown.value], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 // ─── Toast ──────────────────────────────────────────────────────
@@ -692,6 +712,10 @@ function formatDateShort(str) {
             <Sparkles :size="13" :stroke-width="2" />
             排版
           </button>
+          <button class="btn btn-ghost btn-sm" @click="handleDownload" title="下载 Markdown 文件">
+            <Download :size="13" :stroke-width="2" />
+            下载
+          </button>
           <button class="btn btn-ghost btn-sm" @click="openRevisionPanel">
             <History :size="13" :stroke-width="2" />
             历史
@@ -714,14 +738,15 @@ function formatDateShort(str) {
             language="zh-CN"
             :toolbars="[
               'bold', 'italic', 'strikethrough', 'heading', '|',
-              'quote', 'unordered-list', 'ordered-list', '|',
+              'quote', 'unordered-list', 'ordered-list', 'task', '|',
               'link', 'image', 'table', 'code', 'code-block', '|',
-              'preview', 'fullscreen', '=',
+              'find', 'preview', 'fullscreen', '=',
               'undo', 'redo',
             ]"
             :preview="false"
             :html-preview="false"
             @on-upload-img="handleEditorUploadImage"
+            @on-paste-image="handleEditorUploadImage"
           />
         </template>
         <div v-else class="editor-loading">
