@@ -111,3 +111,26 @@ func (r *ArticleRepo) List(req models.ArticleListRequest, userID int64) (*models
 		Items: items,
 	}, nil
 }
+
+// BatchUpdateSortOrder 批量更新文章排序
+func (r *ArticleRepo) BatchUpdateSortOrder(items []struct {
+	ID        int64
+	SortOrder int
+}, userID int64) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, item := range items {
+		if _, err := tx.Exec("UPDATE articles SET sort_order = ? WHERE id = ? AND user_id = ?", item.SortOrder, item.ID, userID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

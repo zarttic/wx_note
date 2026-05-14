@@ -100,3 +100,42 @@ func (r *TagRepo) EnsureTags(userID int64, names []string) ([]int64, error) {
 	}
 	return ids, nil
 }
+
+// GetByArticleIDs 批量获取多篇文章的标签，返回 map[articleID][]Tag
+func (r *TagRepo) GetByArticleIDs(articleIDs []int64) (map[int64][]models.Tag, error) {
+	if len(articleIDs) == 0 {
+		return make(map[int64][]models.Tag), nil
+	}
+
+	placeholders := ""
+	args := make([]interface{}, len(articleIDs))
+	for i, id := range articleIDs {
+		if i > 0 {
+			placeholders += ","
+		}
+		placeholders += "?"
+		args[i] = id
+	}
+
+	query := `SELECT at.article_id, t.id, t.user_id, t.name
+		FROM article_tags at
+		INNER JOIN tags t ON at.tag_id = t.id
+		WHERE at.article_id IN (` + placeholders + `)`
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[int64][]models.Tag)
+	for rows.Next() {
+		var articleID int64
+		var tag models.Tag
+		if err := rows.Scan(&articleID, &tag.ID, &tag.UserID, &tag.Name); err != nil {
+			return nil, err
+		}
+		result[articleID] = append(result[articleID], tag)
+	}
+	return result, nil
+}

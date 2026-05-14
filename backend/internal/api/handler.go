@@ -275,11 +275,20 @@ func (h *Handler) listArticles(c *gin.Context) {
 		return
 	}
 
-	// 为每个文章填充标签
-	for i := range result.Items {
-		tags, err := h.tagRepo.GetByArticleID(result.Items[i].ID)
+	// 批量填充标签
+	if len(result.Items) > 0 {
+		articleIDs := make([]int64, len(result.Items))
+		for i, a := range result.Items {
+			articleIDs[i] = a.ID
+		}
+		tagsMap, err := h.tagRepo.GetByArticleIDs(articleIDs)
 		if err == nil {
-			result.Items[i].Tags = tags
+			for i := range result.Items {
+				result.Items[i].Tags = tagsMap[result.Items[i].ID]
+				if result.Items[i].Tags == nil {
+					result.Items[i].Tags = []models.Tag{}
+				}
+			}
 		}
 	}
 
@@ -901,11 +910,19 @@ func (h *Handler) reorderTemplates(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
 		return
 	}
-	for _, item := range req.Items {
-		if err := h.templateRepo.UpdateSortOrder(item.ID, uid, item.SortOrder); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "排序失败"})
-			return
-		}
+
+	items := make([]struct {
+		ID        int64
+		SortOrder int
+	}, len(req.Items))
+	for i, r := range req.Items {
+		items[i].ID = r.ID
+		items[i].SortOrder = r.SortOrder
+	}
+
+	if err := h.templateRepo.BatchUpdateSortOrder(items, uid); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "排序失败"})
+		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "排序已保存"})
 }
@@ -922,11 +939,19 @@ func (h *Handler) reorderArticles(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
 		return
 	}
-	for _, item := range req.Items {
-		if err := h.articleRepo.UpdateSortOrder(item.ID, uid, item.SortOrder); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "排序失败"})
-			return
-		}
+
+	items := make([]struct {
+		ID        int64
+		SortOrder int
+	}, len(req.Items))
+	for i, r := range req.Items {
+		items[i].ID = r.ID
+		items[i].SortOrder = r.SortOrder
+	}
+
+	if err := h.articleRepo.BatchUpdateSortOrder(items, uid); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "排序失败"})
+		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "排序已保存"})
 }

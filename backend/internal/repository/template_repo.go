@@ -66,3 +66,26 @@ func (r *TemplateRepo) GetCategories(userID int64) ([]string, error) {
 	err := r.db.Select(&categories, "SELECT DISTINCT category FROM templates WHERE user_id = 0 OR user_id = ? ORDER BY category ASC", userID)
 	return categories, err
 }
+
+// BatchUpdateSortOrder 批量更新模板排序
+func (r *TemplateRepo) BatchUpdateSortOrder(items []struct {
+	ID        int64
+	SortOrder int
+}, userID int64) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, item := range items {
+		if _, err := tx.Exec("UPDATE templates SET sort_order = ? WHERE id = ? AND user_id = ?", item.SortOrder, item.ID, userID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
