@@ -16,6 +16,7 @@ import {
   Tag,
   AlertTriangle,
   X,
+  GripVertical,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -37,6 +38,52 @@ const deleteTarget = ref(null)
 const toasts = ref([])
 
 let searchTimer = null
+
+// ── Drag & Drop ──────────────────────────────────────────────────
+
+const dragIndex = ref(null)
+const dragOverIndex = ref(null)
+
+function onDragStart(index) {
+  dragIndex.value = index
+}
+
+function onDragOver(e, index) {
+  e.preventDefault()
+  dragOverIndex.value = index
+}
+
+function onDragLeave() {
+  dragOverIndex.value = null
+}
+
+function onDrop(e, index) {
+  e.preventDefault()
+  dragOverIndex.value = null
+  if (dragIndex.value === null || dragIndex.value === index) {
+    dragIndex.value = null
+    return
+  }
+  const list = [...articles.value]
+  const [moved] = list.splice(dragIndex.value, 1)
+  list.splice(index, 0, moved)
+  dragIndex.value = null
+  articles.value = list
+  saveArticleReorder(list)
+}
+
+function onDragEnd() {
+  dragIndex.value = null
+  dragOverIndex.value = null
+}
+
+async function saveArticleReorder(items) {
+  try {
+    await articleApi.reorder(items.map((a, i) => ({ id: a.id, sort_order: i })))
+  } catch (e) {
+    showToast('排序保存失败', 'error')
+  }
+}
 
 // ── Toast ──────────────────────────────────────────────────────
 
@@ -245,6 +292,7 @@ const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize))
         <table class="article-table">
           <thead>
             <tr>
+              <th class="col-drag"></th>
               <th class="col-title">标题</th>
               <th class="col-tags">标签</th>
               <th class="col-words">字数</th>
@@ -255,10 +303,22 @@ const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize))
           </thead>
           <tbody>
             <tr
-              v-for="article in articles"
+              v-for="(article, index) in articles"
               :key="article.id"
               class="data-row"
+              :class="{ 'drag-over': dragOverIndex === index, 'dragging': dragIndex === index }"
+              draggable="true"
+              @dragstart="onDragStart(index)"
+              @dragover="onDragOver($event, index)"
+              @dragleave="onDragLeave"
+              @drop="onDrop($event, index)"
+              @dragend="onDragEnd"
             >
+              <td class="col-drag">
+                <div class="drag-handle">
+                  <GripVertical :size="14" :stroke-width="1.8" />
+                </div>
+              </td>
               <!-- Title -->
               <td class="col-title">
                 <button
@@ -973,5 +1033,40 @@ const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize))
   .search-wrapper {
     max-width: 100%;
   }
+}
+
+/* ─── Drag & Drop ─────────────────────────────────────────────── */
+
+.col-drag {
+  width: 36px;
+  padding: 14px 8px !important;
+}
+
+.drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-tertiary);
+  opacity: 0;
+  cursor: grab;
+  transition: opacity 0.15s;
+  padding: 2px;
+  border-radius: 4px;
+}
+
+.data-row:hover .drag-handle {
+  opacity: 1;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.data-row.dragging {
+  opacity: 0.5;
+}
+
+.data-row.drag-over {
+  background: var(--color-accent-subtle) !important;
 }
 </style>
