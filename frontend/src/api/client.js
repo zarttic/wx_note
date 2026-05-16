@@ -1,5 +1,11 @@
 const BASE_URL = '/api';
+const DEFAULT_TIMEOUT = 30_000; // 30s
+const UPLOAD_TIMEOUT = 120_000; // 2min for uploads
 
+/**
+ * Build a fetch request with auth headers, JSON content-type detection,
+ * and AbortController timeout support.
+ */
 async function request(url, options = {}) {
   const token = localStorage.getItem('token');
 
@@ -15,31 +21,47 @@ async function request(url, options = {}) {
     headers['Content-Type'] = 'application/json';
   }
 
+  // Timeout via AbortController
+  const timeout = options.timeout ?? DEFAULT_TIMEOUT;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+
   const config = {
     ...options,
     headers,
+    signal: controller.signal,
   };
 
-  const response = await fetch(`${BASE_URL}${url}`, config);
-
-  let data = null
+  let response;
   try {
-    data = await response.json()
+    response = await fetch(`${BASE_URL}${url}`, config);
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') {
+      throw new Error(`请求超时（${timeout / 1000}秒）`);
+    }
+    throw new Error('网络错误，请检查连接');
+  }
+  clearTimeout(timer);
+
+  let data = null;
+  try {
+    data = await response.json();
   } catch (e) {
     // Response body is not valid JSON
   }
 
   if (response.status === 401) {
-    const errMsg = (data?.error || '').toLowerCase()
+    const errMsg = (data?.error || '').toLowerCase();
     if (errMsg.includes('请先登录') || errMsg.includes('登录已过期') || errMsg.includes('unauthorized')) {
       localStorage.removeItem('token');
       window.location.href = '/login';
     }
-    throw new Error(data?.error || '401 Unauthorized')
+    throw new Error(data?.error || '401 Unauthorized');
   }
 
   if (!response.ok) {
-    throw new Error(data?.error || `Request failed (${response.status})`);
+    throw new Error(data?.error || `请求失败（${response.status}）`);
   }
 
   return data;
@@ -171,6 +193,7 @@ export const editorApi = {
       method: 'POST',
       body: formData,
       headers: {},
+      timeout: UPLOAD_TIMEOUT,
     });
   },
 

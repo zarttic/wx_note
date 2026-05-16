@@ -16,7 +16,7 @@ var jwtSecret = []byte(getJWTSecret())
 func getJWTSecret() string {
 	s := os.Getenv("JWT_SECRET")
 	if s == "" {
-		s = "wx-note-secret-key-change-in-production"
+		panic("JWT_SECRET environment variable is required — set it to a random 64+ character string")
 	}
 	return s
 }
